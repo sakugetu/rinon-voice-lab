@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+
+logs/
+profiles/
+saved_audio/
+static/generated/
+
+.env
+.venv/
+venv/

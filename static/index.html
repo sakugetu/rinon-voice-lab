@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Irodori LM Studio Chat</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-badge">
+    <span class="app-name">Rinon Voice Lab</span>
+    <span class="app-version">v0.1.4</span>
+  </div>
+  <main class="shell">
+    <section class="stage">
+      <div class="portrait-wrap">
+        <div class="portrait-stack">
+          <img class="portrait" id="portrait" src="/expressions/neutral.png" alt="character" />
+        </div>
+        <div class="character-name">リノン</div>
+        <div class="speaking" id="speaking">ready</div>
+      </div>
+      <div class="persona-panel">
+        <label class="persona-label" for="systemPrompt">キャラ設定</label>
+        <textarea id="systemPrompt" rows="5">リノンは20歳以上の、アニメ的で少し色っぽい日本語の女の子AI。人なつっこく、気が利き、相手の反応を見ながら甘くからかったり照れたりする。会話は自然で短めに返し、距離感は近いが、露骨すぎる性的描写や未成年っぽい振る舞いは避ける。声は明るくやわらかく、少し小悪魔っぽい余裕と、ふとした照れを混ぜる。</textarea>
+        <label class="persona-label" for="ttsCaption">TTS Caption</label>
+        <textarea id="ttsCaption" rows="4">Native Japanese young adult woman, cute anime assistant voice, warm and intimate conversational acting, slightly teasing little-devil smile, soft breath, gentle emotional nuance, clear pronunciation, clean studio sound.</textarea>
+        <label class="context-row">
+          <span>context</span>
+          <input id="contextLimit" type="number" min="1000" max="30000" step="100" value="8200" />
+          <span id="contextUsage">0 / 8200</span>
+        </label>
+        <div class="session-actions">
+          <button id="saveSession" type="button">Save</button>
+          <button id="loadSession" type="button">Load</button>
+          <button id="clearContext" type="button">Clear</button>
+          <span id="sessionStatus">not saved</span>
+        </div>
+      </div>
+      <div class="status">
+        <div>
+          <span class="label">LM Studio</span>
+          <span id="lmStatus">checking...</span>
+        </div>
+        <div>
+          <span class="label">Irodori</span>
+          <span id="irodoriStatus">checking...</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="chat-panel">
+      <div class="toolbar">
+        <select id="model"></select>
+        <label class="steps">
+          <span>steps</span>
+          <input id="steps" type="number" min="1" max="120" value="12" />
+        </label>
+        <select id="replyLength">
+          <option value="normal" selected>normal</option>
+          <option value="short">short</option>
+          <option value="long">long</option>
+        </select>
+        <label class="auto-style">
+          <input id="autoEmoji" type="checkbox" checked />
+          <span>auto style</span>
+        </label>
+        <select id="emojiStyle">
+          <option value="">plain</option>
+        </select>
+        <input id="emojiCustom" class="emoji-custom" type="text" placeholder="emoji" />
+      </div>
+      <div class="messages" id="messages"></div>
+      <form class="composer" id="composer">
+        <textarea id="message" rows="2" placeholder="話しかけてください"></textarea>
+        <button id="send" type="submit">Send</button>
+      </form>
+      <div class="audio-panel">
+        <audio id="player" controls></audio>
+        <button id="saveAudio" type="button">保存</button>
+        <span id="audioSaveStatus">no audio</span>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
