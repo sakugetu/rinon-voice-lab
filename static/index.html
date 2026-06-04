@@ -95,6 +95,60 @@
           <span>2人だけ</span>
         </label>
       </div>
+      <section class="story-panel" id="storyPanel">
+        <div class="story-strip">
+          <label class="story-toggle">
+            <input id="storyEnabled" type="checkbox" />
+            <span>Story ON</span>
+          </label>
+          <button id="toggleStoryEditor" class="toolbar-button" type="button">Story</button>
+          <div class="story-summary-line" id="storySummaryLine">あらすじ未設定</div>
+          <button id="updateStorySummary" class="story-small-button" type="button">要約更新</button>
+        </div>
+        <div class="story-editor" id="storyEditor" hidden>
+          <div class="story-editor-head">
+            <div>
+              <h2>Story Control</h2>
+              <p>Auto会話の大枠、現在位置、制約をここで管理します。</p>
+            </div>
+            <button id="closeStoryEditor" class="icon-button" type="button" aria-label="Close">x</button>
+          </div>
+          <div class="story-grid">
+            <label class="story-field story-field-wide">
+              <span>あらすじ</span>
+              <textarea id="storyPremise" rows="4" placeholder="例: リノンとルヴィアが深夜ラジオ風に、奇妙な噂を追っていく。"></textarea>
+            </label>
+            <label class="story-field">
+              <span>現在のシーン</span>
+              <input id="storyScene" type="text" placeholder="例: 導入 / 探索 / 対立 / 発見 / 余韻" />
+            </label>
+            <label class="story-field">
+              <span>次に起こすこと</span>
+              <input id="storyNextBeat" type="text" placeholder="例: 違和感を強める" />
+            </label>
+            <label class="story-field story-field-wide">
+              <span>今回の進行指示</span>
+              <textarea id="storyDirective" rows="3" placeholder="例: 結論を急がず、相手が返しやすい疑問を残す。"></textarea>
+            </label>
+            <label class="story-field story-field-wide">
+              <span>禁止・制約</span>
+              <textarea id="storyConstraints" rows="3" placeholder="例: ユーザーに話しかけない。説明口調にしない。核心をまだ明かさない。"></textarea>
+            </label>
+            <label class="story-field">
+              <span>ここまでの要約</span>
+              <textarea id="storySummary" rows="5" placeholder="会話が進んだら要約更新できます。手で直してもOK。"></textarea>
+            </label>
+            <label class="story-field">
+              <span>未回収メモ</span>
+              <textarea id="storyOpenThreads" rows="5" placeholder="伏線、まだ使っていないキーワード、残した謎など。"></textarea>
+            </label>
+          </div>
+          <div class="story-actions">
+            <button id="clearStory" type="button">Story Clear</button>
+            <span id="storyStatus">ready</span>
+          </div>
+        </div>
+      </section>
       <div class="messages" id="messages"></div>
       <form class="composer" id="composer">
         <textarea id="message" rows="2" placeholder="話しかけてください"></textarea>

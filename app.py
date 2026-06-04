@@ -699,6 +699,45 @@ def sanitize_history(value: object) -> list[dict[str, str]]:
     return history
 
 
+def sanitize_story_state(value: object) -> dict:
+    raw = value if isinstance(value, dict) else {}
+    clean = {
+        "enabled": bool(raw.get("enabled", False)),
+        "premise": compact_text(raw.get("premise", ""), 3000),
+        "scene": compact_text(raw.get("scene", ""), 400),
+        "directive": compact_text(raw.get("directive", ""), 1200),
+        "constraints": compact_text(raw.get("constraints", ""), 1200),
+        "summary": compact_text(raw.get("summary", ""), 1800),
+        "openThreads": compact_text(raw.get("openThreads", ""), 1200),
+        "nextBeat": compact_text(raw.get("nextBeat", ""), 600),
+    }
+    return clean
+
+
+def build_story_context(story: object) -> str:
+    clean = sanitize_story_state(story)
+    if not clean["enabled"]:
+        return ""
+    parts = [
+        ("あらすじ", clean["premise"]),
+        ("現在のシーン", clean["scene"]),
+        ("今回の進行指示", clean["directive"]),
+        ("禁止・制約", clean["constraints"]),
+        ("ここまでの要約", clean["summary"]),
+        ("未回収メモ", clean["openThreads"]),
+        ("次に起こすこと", clean["nextBeat"]),
+    ]
+    lines = [
+        "Story Control is enabled.",
+        "以下の脚本メモを長期方針として扱い、今回の発言で物語を少しだけ前へ進めてください。",
+        "直近の会話だけに流されず、あらすじ・現在シーン・未回収メモとの整合を優先してください。",
+    ]
+    for label, text in parts:
+        if text:
+            lines.append(f"{label}: {text}")
+    return "\n".join(lines)
+
+
 def save_session_profile(payload: dict) -> dict:
     PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
@@ -728,6 +767,7 @@ def save_session_profile(payload: dict) -> dict:
             "twoOnlyMode": bool(settings.get("twoOnlyMode", False)),
             "emojiStyle": str(settings.get("emojiStyle") or ""),
             "emojiCustom": str(settings.get("emojiCustom") or ""),
+            "story": sanitize_story_state(settings.get("story")),
         },
         "history": sanitize_history(payload.get("history")),
     }
@@ -1352,6 +1392,7 @@ def request_lmstudio(
     no_dialogue: bool = False,
     speaker: str = "リノン",
     two_only_mode: bool = False,
+    story_context: str = "",
 ) -> tuple[str, str, str, int]:
     length_instruction, max_tokens, chunk_limit = reply_style_for_length(reply_length)
     address = str(user_address or "").strip() or "あなた"
@@ -1393,6 +1434,7 @@ def request_lmstudio(
                     "あなたは日本語で短く自然に返す会話相手です。"
                     "あなたは画面左のキャラクター、リノンとして話します。"
                     f"{character_prompt.strip()}\n"
+                    f"{story_context.strip()}\n"
                     f"{length_instruction}"
                     "思考過程は出さず、最終回答だけを出してください。 /no_think"
                     f"{emoji_instruction}"
@@ -1408,6 +1450,7 @@ def request_lmstudio(
         "あなたは日本語で自然に返す会話相手です。\n"
         f"いま話すキャラクターは「{speaker}」です。\n"
         f"{character_prompt.strip()}\n"
+        f"{story_context.strip()}\n"
         f"{address_instruction}\n"
         f"{no_dialogue_instruction}\n"
         f"{two_only_instruction}\n"
@@ -1441,6 +1484,65 @@ def request_lmstudio(
         raise RuntimeError("LM Studio returned only style marks and no speakable text.")
     model_used = data.get("model") or payload["model"]
     return message, model_used, emoji, chunk_limit
+
+
+def request_story_summary(
+    history: list[dict[str, str]],
+    story: dict,
+    model: str | None,
+) -> dict:
+    transcript_lines = []
+    for item in history[-24:]:
+        role = str(item.get("role") or "")
+        content = compact_text(item.get("content", ""), 500)
+        if content:
+            transcript_lines.append(f"{role}: {content}")
+    story_text = build_story_context({**story, "enabled": True})
+    payload = {
+        "model": model or DEFAULT_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "あなたは会話劇の脚本メモを整理する日本語編集者です。"
+                    "会話内容の評価や感想ではなく、次の自動会話に使う短い運用メモだけを作ります。"
+                    "必ずJSONのみで返してください。キーは summary, openThreads, nextBeat です。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"既存Story設定:\n{story_text}\n\n"
+                    "直近会話:\n"
+                    + "\n".join(transcript_lines)
+                    + "\n\n"
+                    "summaryはここまでに起きたことを400字以内。"
+                    "openThreadsは未回収の伏線や残した問いを箇条書き風に300字以内。"
+                    "nextBeatは次の数ターンで起こすことを80字以内。"
+                ),
+            },
+        ],
+        "temperature": 0.25,
+        "max_tokens": 700,
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        f"{LM_STUDIO_URL}/chat/completions",
+        data=json_bytes(payload),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=90) as res:
+        data = json.loads(res.read().decode("utf-8"))
+    content = str(data["choices"][0]["message"].get("content") or "").strip()
+    match = re.search(r"\{.*\}", content, flags=re.S)
+    parsed = json.loads(match.group(0) if match else content)
+    return {
+        "summary": compact_text(parsed.get("summary", ""), 900),
+        "openThreads": compact_text(parsed.get("openThreads", ""), 700),
+        "nextBeat": compact_text(parsed.get("nextBeat", ""), 180),
+        "model": data.get("model") or payload["model"],
+    }
 
 
 def ensure_irodori_module():
@@ -1892,6 +1994,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(500, {"error": str(exc)})
             return
 
+        if parsed.path == "/api/story-summary":
+            try:
+                body = read_json_body(self)
+                history = sanitize_history(body.get("history"))
+                if not history:
+                    self.send_json(400, {"error": "history is required"})
+                    return
+                model = str(body.get("model") or "").strip() or None
+                story = sanitize_story_state(body.get("story"))
+                self.send_json(200, request_story_summary(history, story, model))
+            except urllib.error.URLError as exc:
+                self.send_json(502, {"error": f"LM Studio request failed: {exc}"})
+            except Exception as exc:
+                self.send_json(500, {"error": str(exc)})
+            return
+
         if parsed.path != "/api/chat":
             self.send_error(404)
             return
@@ -1924,6 +2042,8 @@ class Handler(BaseHTTPRequestHandler):
             context_limit = int(body.get("contextLimit") or DEFAULT_CONTEXT_LIMIT)
             existing_web_context = str(body.get("webContext") or "").strip()
             web_topic = str(body.get("webTopic") or "").strip()
+            story_state = sanitize_story_state(body.get("story"))
+            story_context = build_story_context(story_state)
             raw_messages = [
                 item
                 for item in history
@@ -1963,6 +2083,7 @@ class Handler(BaseHTTPRequestHandler):
                 no_dialogue=no_dialogue,
                 speaker=speaker,
                 two_only_mode=two_only_mode,
+                story_context=story_context,
             )
             effective_emoji = emoji_style or llm_emoji
             chunks = split_sentences(reply, limit=chunk_limit)
@@ -2004,6 +2125,7 @@ class Handler(BaseHTTPRequestHandler):
                     "twoOnlyMode": two_only_mode,
                     "webQuery": web_query,
                     "webContext": web_context,
+                    "story": story_state,
                     "webResults": search_results,
                     "ttsCaption": tts_caption,
                     "userAddress": user_address,
@@ -2048,6 +2170,7 @@ class Handler(BaseHTTPRequestHandler):
                     "twoOnlyMode": two_only_mode,
                     "webQuery": web_query,
                     "webContext": web_context,
+                    "story": story_state,
                     "webResults": search_results,
                 },
             )

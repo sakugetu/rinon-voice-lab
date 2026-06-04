@@ -26,6 +26,21 @@ const contextLimit = document.querySelector("#contextLimit");
 const contextUsage = document.querySelector("#contextUsage");
 const autoEmoji = document.querySelector("#autoEmoji");
 const webSearch = document.querySelector("#webSearch");
+const storyEnabled = document.querySelector("#storyEnabled");
+const toggleStoryEditor = document.querySelector("#toggleStoryEditor");
+const closeStoryEditor = document.querySelector("#closeStoryEditor");
+const storyEditor = document.querySelector("#storyEditor");
+const storySummaryLine = document.querySelector("#storySummaryLine");
+const updateStorySummaryButton = document.querySelector("#updateStorySummary");
+const clearStoryButton = document.querySelector("#clearStory");
+const storyStatus = document.querySelector("#storyStatus");
+const storyPremise = document.querySelector("#storyPremise");
+const storyScene = document.querySelector("#storyScene");
+const storyDirective = document.querySelector("#storyDirective");
+const storyConstraints = document.querySelector("#storyConstraints");
+const storySummary = document.querySelector("#storySummary");
+const storyOpenThreads = document.querySelector("#storyOpenThreads");
+const storyNextBeat = document.querySelector("#storyNextBeat");
 const twoPlayerMode = document.querySelector("#twoPlayerMode");
 const twoOnlyMode = document.querySelector("#twoOnlyMode");
 const mainCharacterSelect = document.querySelector("#mainCharacterSelect");
@@ -331,6 +346,60 @@ function updateContextUsage(extraText = "") {
   contextUsage.textContent = `${used} / ${limit}${compactLabel}`;
   contextUsage.classList.toggle("is-near", used > limit * 0.8);
   contextUsage.classList.toggle("is-over", used > limit);
+}
+
+function storyPayload() {
+  return {
+    enabled: Boolean(storyEnabled?.checked),
+    premise: storyPremise?.value.trim() || "",
+    scene: storyScene?.value.trim() || "",
+    directive: storyDirective?.value.trim() || "",
+    constraints: storyConstraints?.value.trim() || "",
+    summary: storySummary?.value.trim() || "",
+    openThreads: storyOpenThreads?.value.trim() || "",
+    nextBeat: storyNextBeat?.value.trim() || "",
+  };
+}
+
+function hasStoryContent(story = storyPayload()) {
+  return [
+    story.premise,
+    story.scene,
+    story.directive,
+    story.constraints,
+    story.summary,
+    story.openThreads,
+    story.nextBeat,
+  ].some((value) => String(value || "").trim());
+}
+
+function applyStoryState(story = {}) {
+  storyEnabled.checked = Boolean(story.enabled);
+  storyPremise.value = story.premise || "";
+  storyScene.value = story.scene || "";
+  storyDirective.value = story.directive || "";
+  storyConstraints.value = story.constraints || "";
+  storySummary.value = story.summary || "";
+  storyOpenThreads.value = story.openThreads || "";
+  storyNextBeat.value = story.nextBeat || "";
+  updateStoryUi();
+}
+
+function updateStoryUi() {
+  const story = storyPayload();
+  const pieces = [];
+  if (story.scene) pieces.push(`Scene: ${story.scene}`);
+  if (story.nextBeat) pieces.push(`Next: ${story.nextBeat}`);
+  if (!pieces.length && story.premise) pieces.push(story.premise.slice(0, 80));
+  storySummaryLine.textContent = pieces.length
+    ? `${story.enabled ? "ON" : "OFF"} / ${pieces.join(" / ")}`
+    : `${story.enabled ? "ON" : "OFF"} / あらすじ未設定`;
+  storySummaryLine.title = [
+    story.premise && `あらすじ: ${story.premise}`,
+    story.summary && `要約: ${story.summary}`,
+    story.openThreads && `未回収: ${story.openThreads}`,
+  ].filter(Boolean).join("\n");
+  updateStorySummaryButton.disabled = !history.length;
 }
 
 function setInteractionLocked(locked, label = "Send") {
@@ -828,6 +897,7 @@ function sessionPayload() {
       twoOnlyMode: twoOnlyMode.checked,
       emojiStyle: emojiStyleSelect.value,
       emojiCustom: emojiCustom.value,
+      story: storyPayload(),
     },
     history,
   };
@@ -843,6 +913,7 @@ function renderHistory(items) {
     addMessage(item.role, item.content);
   }
   updateContextUsage();
+  updateStoryUi();
 }
 
 function clearContext() {
@@ -869,6 +940,7 @@ function clearContext() {
   updateAutoControls();
   sessionStatus.textContent = "context cleared";
   updateContextUsage();
+  updateStoryUi();
 }
 
 function applySession(profile) {
@@ -911,6 +983,7 @@ function applySession(profile) {
   emojiCustom.value = settings.emojiCustom || "";
   refreshEmojiInputs();
   renderHistory(profile.history || []);
+  applyStoryState(settings.story || {});
   sessionStatus.textContent = profile.savedAt
     ? `loaded ${profile.history?.length || 0} turns`
     : "loaded";
@@ -936,6 +1009,38 @@ async function loadSession(silent = false) {
     return;
   }
   applySession(data);
+}
+
+async function updateStorySummaryFromHistory() {
+  const story = storyPayload();
+  if (!history.length) {
+    storyStatus.textContent = "履歴がありません";
+    return;
+  }
+  try {
+    storyStatus.textContent = "要約更新中...";
+    updateStorySummaryButton.disabled = true;
+    const res = await fetch("/api/story-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        history,
+        story,
+        model: modelSelect.value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    if (data.summary) storySummary.value = data.summary;
+    if (data.openThreads) storyOpenThreads.value = data.openThreads;
+    if (data.nextBeat && !storyNextBeat.value.trim()) storyNextBeat.value = data.nextBeat;
+    storyStatus.textContent = "要約を更新しました";
+    updateStoryUi();
+  } catch (error) {
+    storyStatus.textContent = `要約エラー: ${error.message}`;
+  } finally {
+    updateStorySummaryButton.disabled = !history.length;
+  }
 }
 
 function playQueue(items, speaker = activeStage().speaker, options = {}) {
@@ -1121,6 +1226,7 @@ async function sendChatTurn({
         webSearch: webSearchNow || (webSearch.checked && speaker === mainCharacterName && !isAuto),
         webContext,
         webTopic,
+        story: storyPayload(),
         noDialogue: autoNoDialogue || wantsNoDialogue(text),
       }),
     });
@@ -1282,6 +1388,31 @@ function stopAutoConversation() {
 }
 
 autoEmoji.addEventListener("change", refreshEmojiInputs);
+storyEnabled.addEventListener("change", updateStoryUi);
+toggleStoryEditor.addEventListener("click", () => {
+  storyEditor.hidden = !storyEditor.hidden;
+});
+closeStoryEditor.addEventListener("click", () => {
+  storyEditor.hidden = true;
+});
+updateStorySummaryButton.addEventListener("click", updateStorySummaryFromHistory);
+clearStoryButton.addEventListener("click", () => {
+  const ok = window.confirm("Story設定を消しますか？会話ログは残ります。");
+  if (!ok) return;
+  applyStoryState({});
+  storyStatus.textContent = "Storyを消しました";
+});
+for (const input of [
+  storyPremise,
+  storyScene,
+  storyDirective,
+  storyConstraints,
+  storySummary,
+  storyOpenThreads,
+  storyNextBeat,
+]) {
+  input.addEventListener("input", updateStoryUi);
+}
 twoPlayerMode.addEventListener("change", updateTwoPlayerMode);
 openOptionsButton.addEventListener("click", openOptions);
 closeOptionsButton.addEventListener("click", closeOptions);
@@ -1293,6 +1424,9 @@ optionsModal.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !optionsModal.hidden) {
     closeOptions();
+  }
+  if (event.key === "Escape" && !storyEditor.hidden) {
+    storyEditor.hidden = true;
   }
 });
 mainCharacterSelect.addEventListener("change", () => {
@@ -1422,6 +1556,7 @@ messageInput.addEventListener("keydown", (event) => {
 
 async function initialize() {
   refreshEmojiInputs();
+  updateStoryUi();
   await loadCharacters();
   updateTwoPlayerMode();
   await refreshStatus();
