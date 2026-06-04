@@ -2,6 +2,8 @@
 
 Local prototype chat app that connects LM Studio, Irodori-TTS VoiceDesign, and a simple animated character UI.
 
+Installed app folder: `H:\AI\RinonVoiceLab`
+
 ## Assumptions
 
 - LM Studio OpenAI-compatible API: `http://127.0.0.1:1234/v1`
@@ -11,8 +13,20 @@ Local prototype chat app that connects LM Studio, Irodori-TTS VoiceDesign, and a
 
 ## Run
 
+No extra Python packages are required by this wrapper app itself. Use the
+existing Irodori-TTS virtual environment:
+
 ```powershell
+cd /d H:\AI\RinonVoiceLab
 H:\AI\Irodori-TTS\.venv\Scripts\python.exe app.py
+```
+
+Or double-click `start_chat_uv.bat`.
+
+For documentation completeness:
+
+```powershell
+pip install -r requirements.txt
 ```
 
 ## Notes

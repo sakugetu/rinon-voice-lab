@@ -4,20 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Irodori LM Studio Chat</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="app-badge">
     <span class="app-name">Rinon Voice Lab</span>
-    <span class="app-version">v0.1.4</span>
+    <span class="app-version">v0.1.44</span>
   </div>
   <main class="shell">
     <section class="stage">
-      <div class="portrait-wrap">
+      <div class="portrait-wrap" id="mainPortraitWrap">
         <div class="portrait-stack">
           <img class="portrait" id="portrait" src="/expressions/neutral.png" alt="character" />
         </div>
-        <div class="character-name">リノン</div>
+        <div class="character-name" id="mainCharacterNameLabel">リノン</div>
         <div class="speaking" id="speaking">ready</div>
       </div>
       <div class="persona-panel">
@@ -52,9 +53,25 @@
     <section class="chat-panel">
       <div class="toolbar">
         <select id="model"></select>
+        <label class="character-select-control">
+          <span>1P</span>
+          <select id="mainCharacterSelect"></select>
+        </label>
+        <label class="character-select-control">
+          <span>2P</span>
+          <select id="secondCharacterSelect"></select>
+        </label>
         <label class="steps">
           <span>steps</span>
           <input id="steps" type="number" min="1" max="120" value="12" />
+        </label>
+        <label class="speech-rate-control">
+          <span>pace</span>
+          <input id="speechRate" type="hidden" value="normal" />
+          <span class="speech-rate-buttons" role="group" aria-label="話速">
+            <button class="rate-button is-active" type="button" data-rate="normal">通常</button>
+            <button class="rate-button" type="button" data-rate="fast">早口</button>
+          </span>
         </label>
         <select id="replyLength">
           <option value="normal" selected>normal</option>
@@ -69,19 +86,120 @@
           <option value="">plain</option>
         </select>
         <input id="emojiCustom" class="emoji-custom" type="text" placeholder="emoji" />
+        <label class="mode-toggle">
+          <input id="twoPlayerMode" type="checkbox" />
+          <span>2Pキャラモード</span>
+        </label>
+        <label class="mode-toggle">
+          <input id="twoOnlyMode" type="checkbox" />
+          <span>2人だけ</span>
+        </label>
       </div>
       <div class="messages" id="messages"></div>
       <form class="composer" id="composer">
         <textarea id="message" rows="2" placeholder="話しかけてください"></textarea>
         <button id="send" type="submit">Send</button>
+        <label class="web-toggle">
+          <input id="webSearch" type="checkbox" />
+          <span>Web</span>
+        </label>
+        <button id="autoStart" type="button">Auto</button>
       </form>
       <div class="audio-panel">
         <audio id="player" controls></audio>
         <button id="saveAudio" type="button">保存</button>
+        <button id="openOptions" class="toolbar-button" type="button">Options</button>
+        <label class="address-control" for="userAddress">
+          <span>呼び方</span>
+          <input id="userAddress" class="address-input" type="text" value="あなた" placeholder="あなた" />
+        </label>
         <span id="audioSaveStatus">no audio</span>
       </div>
     </section>
+
+    <section class="stage stage-2p" id="secondPlayerStage" aria-label="2P character">
+      <div class="portrait-wrap" id="secondPortraitWrap">
+        <div class="portrait-stack">
+          <img class="portrait p2-portrait" id="secondPortrait" src="/Character/luvia/expressions/neutral/luvia_neutral.png" alt="2P character" />
+        </div>
+        <div class="character-name" id="secondCharacterNameLabel">ルヴィア</div>
+        <div class="speaking" id="secondSpeaking">standby</div>
+      </div>
+      <div class="persona-panel persona-panel-2p">
+        <label class="persona-label" for="secondSystemPrompt">ルヴィア キャラ設定</label>
+        <textarea id="secondSystemPrompt" rows="5">ルヴィアは20歳以上の、赤髪で勝ち気なアニメ的美少女AI。リノンより少しストレートで、挑発的だが根は面倒見がよい。会話では相手をからかいながらも、要点ははっきり伝える。露骨すぎる性的描写や未成年っぽい振る舞いは避ける。声は少し低めで明るく、元気で自信があり、いたずらっぽい笑みを含む。</textarea>
+        <label class="persona-label" for="secondTtsCaption">ルヴィア TTS Caption</label>
+        <textarea id="secondTtsCaption" rows="4">Native Japanese adult woman, smoky radio presenter voice, low feminine resonance, confident lively tone, polished adult speaking style, restrained teasing confidence, clean studio sound.</textarea>
+      </div>
+    </section>
   </main>
+
+  <div class="modal-backdrop" id="optionsModal" hidden>
+    <section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="optionsTitle">
+      <div class="options-header">
+        <h2 id="optionsTitle">Options</h2>
+        <button id="closeOptions" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="options-grid character-library-grid">
+        <section class="option-pane character-list-pane">
+          <h3>キャラクター一覧</h3>
+          <label class="option-field">
+            <span>編集するキャラ</span>
+            <select id="editCharacterSelect"></select>
+          </label>
+          <div class="library-actions">
+            <button id="newCharacter" type="button">新規キャラ</button>
+            <button id="loadCharacters" type="button">キャラ読込</button>
+            <button id="saveCharacters" type="button">キャラ保存</button>
+          </div>
+          <p class="library-note">1P/2Pのドロップダウンで画面に出すキャラを選び、この画面で選択中キャラを編集します。</p>
+        </section>
+        <section class="option-pane character-editor-pane">
+          <h3>キャラクター編集</h3>
+          <label class="option-field">
+            <span>名前</span>
+            <input id="editCharacterName" type="text" value="" />
+          </label>
+          <label class="option-field">
+            <span>キャラ設定</span>
+            <textarea id="editSystemPrompt" rows="5"></textarea>
+          </label>
+          <label class="option-field">
+            <span>TTS Caption</span>
+            <textarea id="editTtsCaption" rows="4"></textarea>
+          </label>
+          <div class="reference-drop" id="editReferenceDrop">
+            <input id="editReferenceFile" type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.aac" hidden />
+            <button id="editReferenceChoose" type="button">音声を選択</button>
+            <strong>音声リファレンスをドロップ</strong>
+            <span id="editReferenceStatus">default reference</span>
+          </div>
+          <div class="expression-editor">
+            <label class="option-field">
+              <span>表情スロット</span>
+              <select id="editExpressionSelect"></select>
+              <small id="expressionSlotDescription" class="slot-description"></small>
+            </label>
+            <div class="expression-actions">
+              <input id="newExpressionName" type="text" placeholder="新しいスロット名" />
+              <button id="addExpressionSlot" type="button">スロット追加</button>
+            </div>
+            <div class="reference-drop expression-drop" id="expressionImageDrop">
+              <input id="expressionImageFile" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" multiple hidden />
+              <button id="expressionImageChoose" type="button">画像を選択</button>
+              <strong>表情画像をドロップ</strong>
+              <span id="expressionImageStatus">no image selected</span>
+            </div>
+            <div class="expression-thumbs" id="expressionThumbs"></div>
+          </div>
+        </section>
+      </div>
+      <div class="options-footer">
+        <button id="shutdownApp" class="danger-button" type="button">終了</button>
+        <span>IrodoriTTS UI とこのチャットアプリを停止します</span>
+      </div>
+    </section>
+  </div>
 
   <script src="/app.js"></script>
 </body>

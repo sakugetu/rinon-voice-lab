@@ -1,0 +1,6 @@
+# Rinon Voice Lab uses only the Python standard library directly.
+# Run the app with the existing Irodori-TTS virtual environment, because
+# gradio_app_voicedesign.py and the TTS model dependencies live there.
+#
+# Example:
+# H:\AI\Irodori-TTS\.venv\Scripts\python.exe app.py
