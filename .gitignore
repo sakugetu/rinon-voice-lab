@@ -5,8 +5,6 @@ logs/
 profiles/
 saved_audio/
 static/generated/
-static/second_player/
-static/reference/luvia_smoky_radio_pitchdown3_ref.wav
 
 .env
 .venv/
