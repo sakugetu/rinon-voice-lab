@@ -3,4 +3,4 @@
 # gradio_app_voicedesign.py and the TTS model dependencies live there.
 #
 # Example:
-# H:\AI\Irodori-TTS\.venv\Scripts\python.exe app.py
+# ..\Irodori-TTS\.venv\Scripts\python.exe app.py

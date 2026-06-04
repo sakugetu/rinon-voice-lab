@@ -30,7 +30,8 @@ SAVED_AUDIO_ROOT = APP_ROOT / "saved_audio"
 USER_REFERENCE_ROOT = STATIC_ROOT / "reference" / "user_refs"
 LEGACY_CHARACTER_ROOT = APP_ROOT / "characters"
 CHARACTER_ROOT = APP_ROOT / "Character"
-IRODORI_ROOT = Path(os.environ.get("IRODORI_ROOT", r"H:\AI\Irodori-TTS"))
+DEFAULT_IRODORI_ROOT = (APP_ROOT.parent / "Irodori-TTS").resolve()
+IRODORI_ROOT = Path(os.environ.get("IRODORI_ROOT", str(DEFAULT_IRODORI_ROOT))).resolve()
 LM_STUDIO_URL = os.environ.get("LM_STUDIO_URL", "http://127.0.0.1:1234/v1").rstrip("/")
 DEFAULT_MODEL = os.environ.get("LM_STUDIO_MODEL", "gemma-4-31b-it")
 DEFAULT_CONTEXT_LIMIT = int(os.environ.get("LM_STUDIO_CONTEXT_LIMIT", "8200"))
@@ -62,16 +63,13 @@ LUVIA_REF_WAV = Path(
         str(APP_ROOT / "static" / "reference" / "luvia_smoky_radio_pitchdown3_ref.wav"),
     )
 )
-LUVIA_REMOTE_TTS_HOST = os.environ.get("LUVIA_REMOTE_TTS_HOST", "shin@KSHIN-RYZEN4090")
-LUVIA_REMOTE_IRODORI_ROOT = os.environ.get("LUVIA_REMOTE_IRODORI_ROOT", r"E:\AI\Irodori-TTS")
+LUVIA_REMOTE_TTS_HOST = os.environ.get("LUVIA_REMOTE_TTS_HOST", "").strip()
+LUVIA_REMOTE_IRODORI_ROOT = os.environ.get("LUVIA_REMOTE_IRODORI_ROOT", "").strip()
 LUVIA_REMOTE_REF_WAV = os.environ.get(
     "LUVIA_REMOTE_REF_WAV",
-    r"E:\AI\Irodori-TTS\remote_refs\luvia_smoky_radio_pitchdown3_ref.wav",
+    "",
 )
-LUVIA_REMOTE_TTS_URL = os.environ.get(
-    "LUVIA_REMOTE_TTS_URL",
-    "http://192.168.68.59:7874",
-).rstrip("/")
+LUVIA_REMOTE_TTS_URL = os.environ.get("LUVIA_REMOTE_TTS_URL", "").strip().rstrip("/")
 ALLOWED_REFERENCE_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"}
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -120,6 +118,13 @@ def load_emoji_items() -> list[dict[str, str]]:
         for item in EMOJI_PALETTE_ITEMS
     ]
     return Emoji_items_cache
+
+
+def safe_load_emoji_items() -> list[dict[str, str]]:
+    try:
+        return load_emoji_items()
+    except Exception:
+        return []
 
 
 def apply_emoji_style(text: str, emoji_style: str) -> str:
@@ -342,11 +347,12 @@ def copy_character_reference(character_id: str, reference_path: str) -> str:
     if not raw:
         return raw
     src = Path(raw)
+    char_dir = (CHARACTER_ROOT / character_id).resolve()
     if not src.is_absolute():
-        src = (APP_ROOT / src).resolve()
+        char_relative = (char_dir / src).resolve()
+        src = char_relative if char_relative.exists() else (APP_ROOT / src).resolve()
     if not src.exists() or src.suffix.lower() not in ALLOWED_REFERENCE_EXTENSIONS:
         return raw
-    char_dir = (CHARACTER_ROOT / character_id).resolve()
     if str(src.resolve()).startswith(str(char_dir)):
         return str(src.resolve())
     out_dir = CHARACTER_ROOT / character_id / "reference"
@@ -358,6 +364,21 @@ def copy_character_reference(character_id: str, reference_path: str) -> str:
     if not out_path.exists():
         shutil.copy2(src, out_path)
     return str(out_path.resolve())
+
+
+def character_reference_for_disk(character: dict) -> dict:
+    disk_character = json.loads(json.dumps(character, ensure_ascii=False))
+    character_id = sanitize_character_id(disk_character.get("id"))
+    char_dir = (CHARACTER_ROOT / character_id).resolve()
+    raw = str(disk_character.get("referencePath") or "").strip()
+    if raw:
+        try:
+            ref_path = Path(raw).resolve()
+            if str(ref_path).startswith(str(char_dir)):
+                disk_character["referencePath"] = str(ref_path.relative_to(char_dir))
+        except Exception:
+            pass
+    return disk_character
 
 
 def character_text_profile(character: dict) -> str:
@@ -430,11 +451,12 @@ def save_character_folder_profile(character: dict) -> None:
     character_id = sanitize_character_id(character.get("id"))
     char_dir = CHARACTER_ROOT / character_id
     char_dir.mkdir(parents=True, exist_ok=True)
+    disk_character = character_reference_for_disk(character)
     (char_dir / "profile.json").write_text(
-        json.dumps(character, ensure_ascii=False, indent=2),
+        json.dumps(disk_character, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    (char_dir / "profile.txt").write_text(character_text_profile(character), encoding="utf-8")
+    (char_dir / "profile.txt").write_text(character_text_profile(disk_character), encoding="utf-8")
 
 
 def load_character_folder_profiles() -> list[dict]:
@@ -749,6 +771,44 @@ def sanitize_reference_path(value: object, fallback: Path) -> Path:
     return candidate
 
 
+def command_exists(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def irodori_python_path() -> Path:
+    return IRODORI_ROOT / ".venv" / "Scripts" / "python.exe"
+
+
+def remote_luvia_enabled() -> bool:
+    return bool(LUVIA_REMOTE_TTS_URL or (LUVIA_REMOTE_TTS_HOST and LUVIA_REMOTE_IRODORI_ROOT))
+
+
+def environment_diagnostics() -> dict:
+    irodori_python = irodori_python_path()
+    irodori_pyproject = IRODORI_ROOT / "pyproject.toml"
+    lm_models = get_models()
+    return {
+        "appRoot": str(APP_ROOT),
+        "irodoriRoot": str(IRODORI_ROOT),
+        "irodoriRootExists": IRODORI_ROOT.exists(),
+        "irodoriPython": str(irodori_python),
+        "irodoriPythonExists": irodori_python.exists(),
+        "irodoriProjectExists": irodori_pyproject.exists(),
+        "gitExists": command_exists("git"),
+        "uvExists": command_exists("uv"),
+        "lmStudioUrl": LM_STUDIO_URL,
+        "lmStudioReady": bool(lm_models),
+        "models": lm_models,
+        "remoteLuviaEnabled": remote_luvia_enabled(),
+        "remoteLuviaUrl": LUVIA_REMOTE_TTS_URL,
+        "remoteLuviaHost": LUVIA_REMOTE_TTS_HOST,
+        "remoteLuviaRoot": LUVIA_REMOTE_IRODORI_ROOT,
+        "remoteLuviaReference": LUVIA_REMOTE_REF_WAV,
+        "referenceExists": IRODORI_REF_WAV.exists(),
+        "luviaReferenceExists": LUVIA_REF_WAV.exists(),
+    }
+
+
 def save_reference_audio(payload: dict) -> dict:
     slot = "second" if str(payload.get("slot") or "") == "second" else "main"
     character_id = sanitize_character_id(payload.get("characterId"), "rinon")
@@ -784,6 +844,8 @@ def save_reference_audio(payload: dict) -> dict:
 
 
 def remote_ref_for_luvia(reference_wav: Path) -> str:
+    if not (LUVIA_REMOTE_TTS_HOST and LUVIA_REMOTE_IRODORI_ROOT and LUVIA_REMOTE_REF_WAV):
+        raise RuntimeError("Remote Luvia TTS is not configured")
     if reference_wav.resolve() == LUVIA_REF_WAV.resolve():
         return LUVIA_REMOTE_REF_WAV
     cache_key = str(reference_wav.resolve())
@@ -817,7 +879,7 @@ def remote_ref_for_luvia(reference_wav: Path) -> str:
         ],
         timeout=30,
     )
-    remote_scp = remote_path.replace("\\", "/").replace("E:/", "E:/")
+    remote_scp = remote_path.replace("\\", "/")
     run_command(["scp", "-q", str(reference_wav), f"{LUVIA_REMOTE_TTS_HOST}:{remote_scp}"], timeout=90)
     Luvia_remote_ref_cache[cache_key] = remote_path
     return remote_path
@@ -1487,6 +1549,10 @@ def synthesize_sentence_remote_luvia(
     remote_ref_wav: str = "",
     duration_scale: float = 1.0,
 ) -> dict:
+    if not LUVIA_REMOTE_TTS_URL:
+        return synthesize_sentence_remote_luvia_cli(
+            text, index, steps, emoji_style, caption, remote_ref_wav, duration_scale
+        )
     styled_text = apply_emoji_style(text, emoji_style)
     voice_caption = str(caption or "").strip() or IRODORI_CAPTION
     payload = {
@@ -1545,6 +1611,8 @@ def synthesize_sentence_remote_luvia_cli(
     remote_ref_wav: str = "",
     duration_scale: float = 1.0,
 ) -> dict:
+    if not (LUVIA_REMOTE_TTS_HOST and LUVIA_REMOTE_IRODORI_ROOT):
+        raise RuntimeError("Remote Luvia TTS CLI fallback is not configured")
     styled_text = apply_emoji_style(text, emoji_style)
     voice_caption = str(caption or "").strip() or IRODORI_CAPTION
     request_id = f"luvia_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}_{index:02d}"
@@ -1580,8 +1648,8 @@ def synthesize_sentence_remote_luvia_cli(
             detail = (completed.stderr or completed.stdout or "").strip()
             raise RuntimeError(detail or f"command failed: {' '.join(args)}")
 
-    remote_request_scp = remote_request_path.replace("\\", "/").replace("E:/", "E:/")
-    remote_output_scp = remote_output_wav.replace("\\", "/").replace("E:/", "E:/")
+    remote_request_scp = remote_request_path.replace("\\", "/")
+    remote_output_scp = remote_output_wav.replace("\\", "/")
     run_command(
         [
             "ssh",
@@ -1699,13 +1767,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/api/status":
+            diagnostics = environment_diagnostics()
             self.send_json(
                 200,
                 {
                     "lmStudioUrl": LM_STUDIO_URL,
-                    "models": get_models(),
+                    "models": diagnostics["models"],
                     "contextLimit": DEFAULT_CONTEXT_LIMIT,
                     "irodoriRoot": str(IRODORI_ROOT),
+                    "irodoriReady": diagnostics["irodoriRootExists"] and diagnostics["irodoriPythonExists"],
                     "checkpoint": IRODORI_CHECKPOINT,
                     "ttsCaption": IRODORI_CAPTION,
                     "reference": str(IRODORI_REF_WAV),
@@ -1713,10 +1783,11 @@ class Handler(BaseHTTPRequestHandler):
                     "luviaReference": str(LUVIA_REF_WAV),
                     "luviaReferenceExists": LUVIA_REF_WAV.exists(),
                     "userReferenceRoot": str(USER_REFERENCE_ROOT),
+                    "diagnostics": diagnostics,
                     "luviaRemoteTtsHost": LUVIA_REMOTE_TTS_HOST,
                     "luviaRemoteTtsUrl": LUVIA_REMOTE_TTS_URL,
                     "luviaRemoteReference": LUVIA_REMOTE_REF_WAV,
-                    "emojis": load_emoji_items(),
+                    "emojis": safe_load_emoji_items(),
                     "expressions": expression_assets(),
                 },
             )
@@ -1896,12 +1967,9 @@ class Handler(BaseHTTPRequestHandler):
             effective_emoji = emoji_style or llm_emoji
             chunks = split_sentences(reply, limit=chunk_limit)
             reference_wav = second_reference_path if use_second_speaker else reference_path
-            remote_reference_wav = remote_ref_for_luvia(reference_wav) if use_second_speaker else ""
-            synthesize = (
-                synthesize_sentence_remote_luvia
-                if use_second_speaker
-                else synthesize_sentence
-            )
+            use_remote_tts = use_second_speaker and remote_luvia_enabled()
+            remote_reference_wav = remote_ref_for_luvia(reference_wav) if use_remote_tts else ""
+            synthesize = synthesize_sentence_remote_luvia if use_remote_tts else synthesize_sentence
             audios = [
                 synthesize(
                     chunk,
@@ -1912,7 +1980,7 @@ class Handler(BaseHTTPRequestHandler):
                     duration_scale=duration_scale,
                     **(
                         {"remote_ref_wav": remote_reference_wav}
-                        if use_second_speaker
+                        if use_remote_tts
                         else {"ref_wav": reference_wav}
                     ),
                 )

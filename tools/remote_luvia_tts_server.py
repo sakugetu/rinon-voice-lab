@@ -11,11 +11,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-ROOT = Path(os.environ.get("IRODORI_ROOT", r"E:\AI\Irodori-TTS")).resolve()
+ROOT = Path(os.environ.get("IRODORI_ROOT", str(Path(__file__).resolve().parents[2] / "Irodori-TTS"))).resolve()
 CHECKPOINT = os.environ.get("IRODORI_CHECKPOINT", "Aratako/Irodori-TTS-600M-v3-VoiceDesign")
 REF_WAV = os.environ.get(
     "LUVIA_REMOTE_REF_WAV",
-    r"E:\AI\Irodori-TTS\remote_refs\luvia_smoky_radio_pitchdown3_ref.wav",
+    str(ROOT / "remote_refs" / "luvia_smoky_radio_pitchdown3_ref.wav"),
 )
 HOST = os.environ.get("LUVIA_SERVER_HOST", "0.0.0.0")
 PORT = int(os.environ.get("LUVIA_SERVER_PORT", "7874"))

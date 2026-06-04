@@ -2,7 +2,7 @@
 # Edit this file, then use Options > キャラ読込 to reload.
 id: luvia
 name: ルヴィア
-referencePath: H:\AI\RinonVoiceLab\Character\luvia\reference\luvia_smoky_radio_pitchdown3_ref.wav
+referencePath: reference\luvia_smoky_radio_pitchdown3_ref.wav
 portrait: /Character/luvia/expressions/neutral/luvia_neutral.png
 
 [systemPrompt]

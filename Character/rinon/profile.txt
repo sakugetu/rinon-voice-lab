@@ -2,7 +2,7 @@
 # Edit this file, then use Options > キャラ読込 to reload.
 id: rinon
 name: リノン
-referencePath: H:\AI\RinonVoiceLab\Character\rinon\reference\tokyo_ref.wav
+referencePath: reference\tokyo_ref.wav
 portrait: /Character/rinon/expressions/neutral/neutral.png
 
 [systemPrompt]

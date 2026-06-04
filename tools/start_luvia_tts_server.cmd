@@ -1,4 +1,7 @@
 @echo off
-cd /d E:\AI\Irodori-TTS
+setlocal
+if "%IRODORI_ROOT%"=="" set "IRODORI_ROOT=%~dp0..\..\Irodori-TTS"
+for %%I in ("%IRODORI_ROOT%") do set "IRODORI_ROOT=%%~fI"
+cd /d "%IRODORI_ROOT%"
 if not exist outputs mkdir outputs
-E:\AI\Irodori-TTS\.venv\Scripts\python.exe E:\AI\Irodori-TTS\remote_luvia_tts_server.py >> E:\AI\Irodori-TTS\outputs\remote_luvia_server.out.log 2>> E:\AI\Irodori-TTS\outputs\remote_luvia_server.err.log
+"%IRODORI_ROOT%\.venv\Scripts\python.exe" "%~dp0remote_luvia_tts_server.py" >> "%IRODORI_ROOT%\outputs\remote_luvia_server.out.log" 2>> "%IRODORI_ROOT%\outputs\remote_luvia_server.err.log"

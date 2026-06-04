@@ -1001,7 +1001,10 @@ async function refreshStatus() {
   try {
     const res = await fetch("/api/status");
     const data = await res.json();
-    lmStatus.textContent = data.models.length ? `${data.models.length} models` : "not detected";
+    const diagnostics = data.diagnostics || {};
+    lmStatus.textContent = data.models.length
+      ? `${data.models.length} models`
+      : `not detected: ${data.lmStudioUrl}`;
     if (data.contextLimit && !contextLimit.dataset.touched) {
       contextLimit.value = data.contextLimit;
     }
@@ -1012,9 +1015,17 @@ async function refreshStatus() {
     mainReferencePath = mainReferencePath || data.reference || "";
     secondReferencePath = secondReferencePath || data.luviaReference || "";
     renderCharacterEditor();
-    irodoriStatus.textContent = data.referenceExists
-      ? `Tokyo ref / ${data.irodoriRoot}`
-      : data.irodoriRoot;
+    if (data.irodoriReady) {
+      const remoteLabel = diagnostics.remoteLuviaEnabled ? " / 2P remote on" : " / 2P local";
+      irodoriStatus.textContent = `${data.referenceExists ? "refs ready" : "ref missing"} / ${data.irodoriRoot}${remoteLabel}`;
+    } else {
+      const missing = [];
+      if (!diagnostics.gitExists) missing.push("git");
+      if (!diagnostics.uvExists) missing.push("uv");
+      if (!diagnostics.irodoriRootExists) missing.push("Irodori");
+      if (diagnostics.irodoriRootExists && !diagnostics.irodoriPythonExists) missing.push("Irodori venv");
+      irodoriStatus.textContent = `setup needed: ${missing.join(", ") || data.irodoriRoot}`;
+    }
     expressionImages = Object.fromEntries(
       Object.entries(data.expressions || expressionImages).map(([key, value]) => [
         key,

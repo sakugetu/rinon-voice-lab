@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string] $IrodoriRoot = $(if ($env:IRODORI_ROOT) { $env:IRODORI_ROOT } else { 'H:\AI\Irodori-TTS' }),
+  [string] $IrodoriRoot = $(if ($env:IRODORI_ROOT) { $env:IRODORI_ROOT } else { Join-Path (Split-Path -Parent $PSScriptRoot) '..\Irodori-TTS' }),
   [string] $RepositoryUrl = 'https://github.com/Aratako/Irodori-TTS.git',
   [ValidateSet('cu128', 'cpu', 'rocm', 'xpu')]
   [string] $TorchExtra = $(if ($env:IRODORI_TORCH_EXTRA) { $env:IRODORI_TORCH_EXTRA } else { 'cu128' }),
