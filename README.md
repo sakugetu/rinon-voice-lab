@@ -21,7 +21,22 @@ cd /d H:\AI\RinonVoiceLab
 H:\AI\Irodori-TTS\.venv\Scripts\python.exe app.py
 ```
 
-Or double-click `start_chat_uv.bat`.
+Or double-click `start_chat_uv.bat`. If `H:\AI\Irodori-TTS` does not exist yet,
+the launcher runs `tools\install_irodori_tts.ps1` first and installs Irodori-TTS.
+
+Manual Irodori-TTS install:
+
+```powershell
+cd /d H:\AI\RinonVoiceLab
+powershell -ExecutionPolicy Bypass -File tools\install_irodori_tts.ps1
+```
+
+The installer defaults to NVIDIA/CUDA wheels through `uv sync --extra cu128`.
+For CPU-only setup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install_irodori_tts.ps1 -TorchExtra cpu
+```
 
 For documentation completeness:
 
