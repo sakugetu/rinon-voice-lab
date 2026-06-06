@@ -121,6 +121,47 @@ These are local runtime files and are ignored by Git:
 - `static/generated/`
 - Python caches and virtual environments
 
+## External Speak Mode
+
+RinonVoiceLab can receive short text from Codex, Claude Code, or another local
+tool and speak it through the currently open character UI.
+
+Start RinonVoiceLab, open `http://127.0.0.1:7862/`, then POST:
+
+```powershell
+$body = @{
+  text = "リノンから外部スピークのテストだよ。"
+  emoji = ""
+  caption = "soft cheerful Japanese anime voice, clear pronunciation"
+  speakerSlot = "main"
+  steps = 8
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  http://127.0.0.1:7862/api/speak `
+  -Method Post `
+  -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($body))
+```
+
+Payload keys:
+
+| Key | Purpose |
+| --- | --- |
+| `text` | Text to speak |
+| `emoji` / `emojiStyle` | Irodori style emoji |
+| `caption` / `ttsCaption` | VoiceDesign acting caption |
+| `speakerSlot` | `main` or `second` |
+| `referencePath` | Optional reference wav path |
+| `steps` | Irodori generation steps |
+| `speechRate` | `normal` or `fast` |
+| `durationScale` | Optional direct duration scale |
+
+The browser polls `/api/speak-events` and plays new external speak events with
+the normal character animation, expression switching, panning, and audio save
+controls. Refresh the browser after updating the app so the polling code is
+loaded.
+
 ## Validation
 
 Useful development checks:

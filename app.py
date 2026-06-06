@@ -13,6 +13,7 @@ import time
 import uuid
 import urllib.error
 import urllib.request
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html import unescape as html_unescape
 from pathlib import Path
@@ -77,6 +78,9 @@ Irodori_lock = threading.Lock()
 Irodori_module = None
 Emoji_items_cache = None
 Luvia_remote_ref_cache: dict[str, str] = {}
+External_speak_lock = threading.Lock()
+External_speak_events = deque(maxlen=80)
+External_speak_next_id = 0
 
 
 def json_bytes(payload: object) -> bytes:
@@ -1744,6 +1748,100 @@ def synthesize_sentence_remote_luvia_cli(
     }
 
 
+def next_external_speak_id() -> int:
+    global External_speak_next_id
+    with External_speak_lock:
+        External_speak_next_id += 1
+        return External_speak_next_id
+
+
+def publish_external_speak_event(event: dict) -> dict:
+    event["id"] = next_external_speak_id()
+    event["createdAt"] = time.time()
+    with External_speak_lock:
+        External_speak_events.append(event)
+    return event
+
+
+def external_speak_events_after(after_id: int) -> list[dict]:
+    with External_speak_lock:
+        return [event for event in External_speak_events if int(event.get("id") or 0) > after_id]
+
+
+def handle_external_speak(payload: dict) -> dict:
+    text = str(payload.get("text") or payload.get("message") or "").strip()
+    if not text:
+        raise ValueError("text is required")
+    speaker_slot = "second" if str(payload.get("speakerSlot") or payload.get("slot") or "") == "second" else "main"
+    use_second_speaker = speaker_slot == "second"
+    speaker = str(payload.get("speaker") or ("ルヴィア" if use_second_speaker else "リノン")).strip()
+    emoji_style = str(payload.get("emoji") or payload.get("emojiStyle") or "").strip()
+    caption = str(payload.get("caption") or payload.get("ttsCaption") or IRODORI_CAPTION).strip()
+    steps = max(1, min(120, int(payload.get("steps") or 12)))
+    speech_rate = str(payload.get("speechRate") or "normal").strip().lower()
+    duration_scale = float(payload.get("durationScale") or tts_duration_scale_for_rate(speech_rate))
+    chunk_limit = max(1, min(20, int(payload.get("chunkLimit") or 8)))
+    reference_path = sanitize_reference_path(
+        payload.get("referencePath"),
+        LUVIA_REF_WAV if use_second_speaker else IRODORI_REF_WAV,
+    )
+    chunks = split_sentences(text, limit=chunk_limit)
+    audios = [
+        synthesize_sentence(
+            chunk,
+            index,
+            steps=steps,
+            emoji_style=emoji_style,
+            caption=caption,
+            ref_wav=reference_path,
+            duration_scale=duration_scale,
+        )
+        for index, chunk in enumerate(chunks, start=1)
+    ]
+    event = publish_external_speak_event(
+        {
+            "source": "external",
+            "speaker": speaker,
+            "speakerSlot": speaker_slot,
+            "text": text,
+            "chunks": chunks,
+            "audios": audios,
+            "emojiStyle": emoji_style,
+            "expression": expression_for_emoji(emoji_style),
+            "caption": caption,
+            "reference": str(reference_path),
+            "speechRate": speech_rate,
+            "durationScale": duration_scale,
+        }
+    )
+    append_chat_log(
+        {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "source": "externalSpeak",
+            "speaker": speaker,
+            "speakerSlot": speaker_slot,
+            "reply": text,
+            "emojiStyle": emoji_style,
+            "expression": event["expression"],
+            "ttsCaption": caption,
+            "reference": str(reference_path),
+            "chunkCount": len(chunks),
+            "audios": [
+                {
+                    "text": item.get("text"),
+                    "ttsText": item.get("ttsText"),
+                    "emojiStyle": item.get("emojiStyle"),
+                    "expression": item.get("expression"),
+                    "elapsed": item.get("elapsed"),
+                    "url": item.get("url"),
+                }
+                for item in audios
+            ],
+        }
+    )
+    return event
+
+
 def get_models() -> list[str]:
     try:
         with urllib.request.urlopen(f"{LM_STUDIO_URL}/models", timeout=5) as res:
@@ -1795,6 +1893,32 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/log-summary":
             self.send_json(200, chat_log_summary())
+            return
+
+        if parsed.path == "/api/speak-events":
+            query = parse_qs(parsed.query)
+            after_raw = (query.get("after") or ["0"])[0]
+            if str(after_raw).lower() == "latest":
+                self.send_json(
+                    200,
+                    {
+                        "events": [],
+                        "latestId": External_speak_next_id,
+                    },
+                )
+                return
+            try:
+                after_id = int(after_raw or 0)
+            except ValueError:
+                after_id = 0
+            events = external_speak_events_after(after_id)
+            self.send_json(
+                200,
+                {
+                    "events": events,
+                    "latestId": events[-1]["id"] if events else after_id,
+                },
+            )
             return
 
         if parsed.path == "/api/session":
@@ -1879,6 +2003,14 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/character-image":
             try:
                 self.send_json(200, save_character_image(read_json_body(self)))
+            except Exception as exc:
+                self.send_json(500, {"error": str(exc)})
+            return
+
+        if parsed.path == "/api/speak":
+            try:
+                event = handle_external_speak(read_json_body(self))
+                self.send_json(200, {"ok": True, "event": event})
             except Exception as exc:
                 self.send_json(500, {"error": str(exc)})
             return

@@ -91,6 +91,8 @@ let autoWebQuery = "";
 let autoWebResults = [];
 let autoTurnCount = 0;
 let autoNoDialogue = false;
+let externalSpeakLastId = 0;
+let externalSpeakPolling = false;
 let lastContextStats = null;
 let audioContext = null;
 let audioSource = null;
@@ -997,6 +999,61 @@ function playNext() {
 
 player.addEventListener("ended", playNext);
 
+function speakerForExternalEvent(event) {
+  if (event.speakerSlot === "second") {
+    if (!twoPlayerMode.checked) {
+      twoPlayerMode.checked = true;
+      updateTwoPlayerMode();
+    }
+    return secondCharacterName;
+  }
+  return mainCharacterName;
+}
+
+function handleExternalSpeakEvent(event) {
+  const audios = Array.isArray(event.audios) ? event.audios : [];
+  if (!audios.length) return;
+  const speaker = speakerForExternalEvent(event);
+  const timing = audios.map((item) => `${item.elapsed}s`).join(", ");
+  const style = event.emojiStyle ? ` / style ${event.emojiStyle}` : "";
+  const sourceSpeaker = event.speaker ? ` from ${event.speaker}` : "";
+  const meta = `external speak${sourceSpeaker}${style} / pose ${event.expression || "neutral"} / tts ${timing}`;
+  addMessage("assistant", event.text || audios.map((item) => item.text).join(""), meta);
+  playQueue(audios, speaker, { append: true });
+}
+
+async function primeExternalSpeakEvents() {
+  try {
+    const res = await fetch("/api/speak-events?after=latest");
+    const data = await res.json();
+    if (res.ok) {
+      externalSpeakLastId = Number(data.latestId || 0);
+    }
+  } catch {
+    externalSpeakLastId = 0;
+  }
+}
+
+async function pollExternalSpeakEvents() {
+  if (externalSpeakPolling) return;
+  externalSpeakPolling = true;
+  try {
+    const res = await fetch(`/api/speak-events?after=${externalSpeakLastId}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    const events = Array.isArray(data.events) ? data.events : [];
+    for (const event of events) {
+      externalSpeakLastId = Math.max(externalSpeakLastId, Number(event.id || 0));
+      handleExternalSpeakEvent(event);
+    }
+    externalSpeakLastId = Math.max(externalSpeakLastId, Number(data.latestId || 0));
+  } catch {
+    // Keep this quiet; normal chat should not be interrupted by a polling miss.
+  } finally {
+    externalSpeakPolling = false;
+  }
+}
+
 async function refreshStatus() {
   try {
     const res = await fetch("/api/status");
@@ -1426,6 +1483,8 @@ async function initialize() {
   updateTwoPlayerMode();
   await refreshStatus();
   await loadSession(true);
+  await primeExternalSpeakEvents();
+  window.setInterval(pollExternalSpeakEvents, 1500);
 }
 
 initialize().catch((error) => {
