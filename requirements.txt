@@ -1,6 +1,9 @@
-# Rinon Voice Lab uses only the Python standard library directly.
-# Run the app with the existing Irodori-TTS virtual environment, because
-# gradio_app_voicedesign.py and the TTS model dependencies live there.
+# Rinon Voice Lab has no direct third-party Python package requirements.
+# The app server uses only Python standard library modules.
 #
-# Example:
-# ..\Irodori-TTS\.venv\Scripts\python.exe app.py
+# Irodori-TTS is installed into its own virtual environment by:
+#   start_chat_uv.bat
+# or:
+#   powershell -ExecutionPolicy Bypass -File tools\install_irodori_tts.ps1
+#
+# Do not expect `pip install -r requirements.txt` to install Irodori-TTS.

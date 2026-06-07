@@ -42,6 +42,16 @@ body {
   font-size: 12px;
 }
 
+.readme-link {
+  color: #f4d06f;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.readme-link:hover {
+  text-decoration: underline;
+}
+
 .shell {
   height: 100vh;
   display: grid;

@@ -2009,6 +2009,18 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = "/index.html" if parsed.path == "/" else parsed.path
+        if parsed.path in {"/README.md", "/README.ja.md"}:
+            file_path = (APP_ROOT / parsed.path.lstrip("/")).resolve()
+            if not str(file_path).startswith(str(APP_ROOT.resolve())) or not file_path.exists():
+                self.send_error(404)
+                return
+            data = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         rel = Path(unquote(path.lstrip("/")))
         static_root = STATIC_ROOT.resolve()
         file_path = (STATIC_ROOT / rel).resolve()
