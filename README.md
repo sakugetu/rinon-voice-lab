@@ -15,6 +15,36 @@ SomeFolder\
   Irodori-TTS\
 ```
 
+## 日本語概要
+
+Rinon Voice Lab は、LM Studio のローカルLLMと Irodori-TTS をつなぐ、
+Windows向けのローカル会話・読み上げアプリです。
+
+- 1P/2Pキャラクター会話
+- Irodori-TTS VoiceDesign による音声生成
+- キャラクター画像、表情差分、参考音声、TTS Caption の管理
+- Web検索メモをLLMプロンプトへ差し込む簡易検索機能
+- 2P音声だけを別PCのIrodori-TTSへ送るリモートTTSモード
+
+基本モデルは軽量運用を優先して `gemma-4-12b-it` にしています。
+31B級モデルも使えますが、A6000でもVRAMを大きく消費します。
+
+### 日本語クイックスタート
+
+1. LM Studioを起動し、OpenAI互換ローカルサーバーを有効にします。
+2. `gemma-4-12b-it` などの会話モデルを読み込みます。
+3. `start_chat_uv.bat` を実行します。
+4. ブラウザで `http://127.0.0.1:7862/` を開きます。
+
+Irodori-TTSが見つからない場合、起動BATが `tools\install_irodori_tts.ps1`
+を使って、アプリの隣に `Irodori-TTS` をセットアップします。
+
+### 公開・配布時の注意
+
+`logs/`, `profiles/`, `saved_audio/`, `static/generated/` はローカル実行時の
+履歴・設定・生成音声です。Gitには含めない設定にしてありますが、ZIP配布などで
+フォルダごと渡す場合は削除してください。
+
 ## Requirements
 
 - Windows 10/11
@@ -75,7 +105,7 @@ Useful environment variables:
 | --- | --- | --- |
 | `IRODORI_ROOT` | `..\Irodori-TTS` next to this app | Irodori-TTS checkout and virtual environment |
 | `LM_STUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio OpenAI-compatible endpoint |
-| `LM_STUDIO_MODEL` | `gemma-4-31b-it` | Preferred model name |
+| `LM_STUDIO_MODEL` | `gemma-4-12b-it` | Preferred model name |
 | `LM_STUDIO_CONTEXT_LIMIT` | `8200` | Visible context budget |
 | `IRODORI_TORCH_EXTRA` | `cu128` | Installer torch extra: `cu128`, `cpu`, `rocm`, or `xpu` |
 

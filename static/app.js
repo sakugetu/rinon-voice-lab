@@ -1139,6 +1139,7 @@ async function refreshStatus() {
     }
     const preferred =
       [...modelSelect.options].find((opt) => opt.value === "__codex_queue__" && opt.dataset.preferred === "1") ||
+      [...modelSelect.options].find((opt) => opt.value === "gemma-4-12b-it") ||
       [...modelSelect.options].find((opt) => opt.value === "gemma-4-31b-it") ||
       [...modelSelect.options].find((opt) => opt.value.toLowerCase().includes("gemma"));
     if (preferred) modelSelect.value = preferred.value;
