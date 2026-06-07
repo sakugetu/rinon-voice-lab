@@ -222,3 +222,11 @@ node --check static\app.js
 $env:PYTHONDONTWRITEBYTECODE='1'
 ..\Irodori-TTS\.venv\Scripts\python.exe -m py_compile app.py tools\remote_luvia_tts_server.py
 ```
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
+
+## ライセンス
+
+MITライセンスです。詳細は [LICENSE](LICENSE) を参照してください。
