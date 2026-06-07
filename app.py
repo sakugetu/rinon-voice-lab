@@ -71,6 +71,7 @@ LUVIA_REMOTE_REF_WAV = os.environ.get(
     "",
 )
 LUVIA_REMOTE_TTS_URL = os.environ.get("LUVIA_REMOTE_TTS_URL", "").strip().rstrip("/")
+LUVIA_REMOTE_DEFAULT_PORT = int(os.environ.get("LUVIA_REMOTE_DEFAULT_PORT", "7874"))
 ALLOWED_REFERENCE_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"}
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -81,6 +82,9 @@ Luvia_remote_ref_cache: dict[str, str] = {}
 External_speak_lock = threading.Lock()
 External_speak_events = deque(maxlen=80)
 External_speak_next_id = 0
+Codex_inbox_lock = threading.Lock()
+Codex_inbox = deque(maxlen=120)
+Codex_inbox_next_id = 0
 
 
 def json_bytes(payload: object) -> bytes:
@@ -129,6 +133,24 @@ def safe_load_emoji_items() -> list[dict[str, str]]:
         return load_emoji_items()
     except Exception:
         return []
+
+
+def enqueue_codex_inbox(payload: dict) -> dict:
+    global Codex_inbox_next_id
+    with Codex_inbox_lock:
+        Codex_inbox_next_id += 1
+        item = {
+            "id": Codex_inbox_next_id,
+            "createdAt": time.time(),
+            **payload,
+        }
+        Codex_inbox.append(item)
+    return item
+
+
+def codex_inbox_since(after: int) -> list[dict]:
+    with Codex_inbox_lock:
+        return [item for item in Codex_inbox if int(item.get("id", 0)) > after]
 
 
 def apply_emoji_style(text: str, emoji_style: str) -> str:
@@ -709,23 +731,25 @@ def save_session_profile(payload: dict) -> dict:
     profile = {
         "version": 1,
         "savedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "settings": {
-                "systemPrompt": str(settings.get("systemPrompt") or ""),
-                "mainCharacterName": str(settings.get("mainCharacterName") or "リノン"),
-                "secondCharacterName": str(settings.get("secondCharacterName") or "ルヴィア"),
-                "activeMainCharacterId": str(settings.get("activeMainCharacterId") or "rinon"),
-                "activeSecondCharacterId": str(settings.get("activeSecondCharacterId") or "luvia"),
-                "userAddress": str(settings.get("userAddress") or "あなた"),
-                "ttsCaption": str(settings.get("ttsCaption") or IRODORI_CAPTION),
-                "secondSystemPrompt": str(settings.get("secondSystemPrompt") or ""),
-                "secondTtsCaption": str(settings.get("secondTtsCaption") or IRODORI_CAPTION),
-                "referencePath": str(settings.get("referencePath") or IRODORI_REF_WAV),
-                "secondReferencePath": str(settings.get("secondReferencePath") or LUVIA_REF_WAV),
-                "contextLimit": int(settings.get("contextLimit") or DEFAULT_CONTEXT_LIMIT),
-                "model": str(settings.get("model") or DEFAULT_MODEL),
-                "steps": int(settings.get("steps") or 12),
-                "speechRate": str(settings.get("speechRate") or "normal"),
-                "replyLength": str(settings.get("replyLength") or "normal"),
+        "settings": {
+            "systemPrompt": str(settings.get("systemPrompt") or ""),
+            "mainCharacterName": str(settings.get("mainCharacterName") or "リノン"),
+            "secondCharacterName": str(settings.get("secondCharacterName") or "ルヴィア"),
+            "activeMainCharacterId": str(settings.get("activeMainCharacterId") or "rinon"),
+            "activeSecondCharacterId": str(settings.get("activeSecondCharacterId") or "luvia"),
+            "userAddress": str(settings.get("userAddress") or "あなた"),
+            "ttsCaption": str(settings.get("ttsCaption") or IRODORI_CAPTION),
+            "secondSystemPrompt": str(settings.get("secondSystemPrompt") or ""),
+            "secondTtsCaption": str(settings.get("secondTtsCaption") or IRODORI_CAPTION),
+            "referencePath": str(settings.get("referencePath") or IRODORI_REF_WAV),
+            "secondReferencePath": str(settings.get("secondReferencePath") or LUVIA_REF_WAV),
+            "contextLimit": int(settings.get("contextLimit") or DEFAULT_CONTEXT_LIMIT),
+            "model": str(settings.get("model") or DEFAULT_MODEL),
+            "steps": int(settings.get("steps") or 12),
+            "speechRate": str(settings.get("speechRate") or "normal"),
+            "replyLength": str(settings.get("replyLength") or "normal"),
+            "ttsBackendMode": str(settings.get("ttsBackendMode") or "local"),
+            "secondTtsHost": str(settings.get("secondTtsHost") or ""),
             "autoEmoji": bool(settings.get("autoEmoji", True)),
             "webSearch": bool(settings.get("webSearch", False)),
             "twoPlayerMode": bool(settings.get("twoPlayerMode", False)),
@@ -783,8 +807,34 @@ def irodori_python_path() -> Path:
     return IRODORI_ROOT / ".venv" / "Scripts" / "python.exe"
 
 
-def remote_luvia_enabled() -> bool:
-    return bool(LUVIA_REMOTE_TTS_URL or (LUVIA_REMOTE_TTS_HOST and LUVIA_REMOTE_IRODORI_ROOT))
+def normalize_remote_tts_url(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not re.match(r"^https?://", text, re.IGNORECASE):
+        text = f"http://{text}"
+    parsed = urlparse(text)
+    if not parsed.netloc:
+        return ""
+    netloc = parsed.netloc
+    try:
+        has_port = parsed.port is not None
+    except ValueError:
+        has_port = False
+    if not has_port and ":" not in netloc:
+        netloc = f"{netloc}:{LUVIA_REMOTE_DEFAULT_PORT}"
+    path = parsed.path.rstrip("/")
+    if path.endswith("/synthesize"):
+        path = path[: -len("/synthesize")]
+    return f"{parsed.scheme}://{netloc}{path}".rstrip("/")
+
+
+def remote_luvia_enabled(remote_url: str = "") -> bool:
+    return bool(
+        normalize_remote_tts_url(remote_url)
+        or LUVIA_REMOTE_TTS_URL
+        or (LUVIA_REMOTE_TTS_HOST and LUVIA_REMOTE_IRODORI_ROOT)
+    )
 
 
 def environment_diagnostics() -> dict:
@@ -1552,8 +1602,10 @@ def synthesize_sentence_remote_luvia(
     caption: str = "",
     remote_ref_wav: str = "",
     duration_scale: float = 1.0,
+    remote_tts_url: str = "",
 ) -> dict:
-    if not LUVIA_REMOTE_TTS_URL:
+    target_url = normalize_remote_tts_url(remote_tts_url) or LUVIA_REMOTE_TTS_URL
+    if not target_url:
         return synthesize_sentence_remote_luvia_cli(
             text, index, steps, emoji_style, caption, remote_ref_wav, duration_scale
         )
@@ -1568,7 +1620,7 @@ def synthesize_sentence_remote_luvia(
         "durationScale": float(duration_scale),
     }
     request = urllib.request.Request(
-        f"{LUVIA_REMOTE_TTS_URL}/synthesize",
+        f"{target_url}/synthesize",
         data=json_bytes(payload),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -1580,10 +1632,12 @@ def synthesize_sentence_remote_luvia(
         audio_bytes = base64.b64decode(str(data["audioBase64"]))
         elapsed = float(data.get("elapsed") or (time.perf_counter() - start))
     except Exception as exc:
-        fallback = synthesize_sentence_remote_luvia_cli(text, index, steps, emoji_style, caption, remote_ref_wav, duration_scale)
-        fallback["remoteServerError"] = str(exc)
-        fallback["engine"] = "4090-cli-fallback"
-        return fallback
+        if LUVIA_REMOTE_TTS_HOST and LUVIA_REMOTE_IRODORI_ROOT:
+            fallback = synthesize_sentence_remote_luvia_cli(text, index, steps, emoji_style, caption, remote_ref_wav, duration_scale)
+            fallback["remoteServerError"] = str(exc)
+            fallback["engine"] = "4090-cli-fallback"
+            return fallback
+        raise RuntimeError(f"Remote 2P TTS failed at {target_url}: {exc}") from exc
 
     out_dir = STATIC_ROOT / "generated"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1601,8 +1655,8 @@ def synthesize_sentence_remote_luvia(
         "expression": expression_for_emoji(emoji_style),
         "url": f"/generated/{safe_name}",
         "elapsed": round(elapsed, 3),
-        "source": str(data.get("source") or LUVIA_REMOTE_TTS_URL),
-        "engine": "4090-server",
+        "source": str(data.get("source") or target_url),
+        "engine": "remote-server",
     }
 
 
@@ -1884,7 +1938,9 @@ class Handler(BaseHTTPRequestHandler):
                     "diagnostics": diagnostics,
                     "luviaRemoteTtsHost": LUVIA_REMOTE_TTS_HOST,
                     "luviaRemoteTtsUrl": LUVIA_REMOTE_TTS_URL,
+                    "luviaRemoteDefaultPort": LUVIA_REMOTE_DEFAULT_PORT,
                     "luviaRemoteReference": LUVIA_REMOTE_REF_WAV,
+                    "codexInboxSize": len(Codex_inbox),
                     "emojis": safe_load_emoji_items(),
                     "expressions": expression_assets(),
                 },
@@ -1893,6 +1949,23 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/log-summary":
             self.send_json(200, chat_log_summary())
+            return
+
+        if parsed.path == "/api/codex-inbox":
+            query = parse_qs(parsed.query)
+            after_raw = (query.get("after") or ["0"])[0]
+            try:
+                after_id = int(after_raw or 0)
+            except ValueError:
+                after_id = 0
+            events = codex_inbox_since(after_id)
+            self.send_json(
+                200,
+                {
+                    "events": events,
+                    "latestId": events[-1]["id"] if events else after_id,
+                },
+            )
             return
 
         if parsed.path == "/api/speak-events":
@@ -2024,6 +2097,42 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(500, {"error": str(exc)})
             return
 
+        if parsed.path == "/api/codex-inbox":
+            try:
+                if self.command == "POST":
+                    body = read_json_body(self)
+                    message = str(body.get("message") or "").strip()
+                    if not message:
+                        self.send_json(400, {"error": "message is required"})
+                        return
+                    item = enqueue_codex_inbox(
+                        {
+                            "source": str(body.get("source") or "ui").strip(),
+                            "message": message,
+                            "speaker": str(body.get("speaker") or "").strip(),
+                            "speakerSlot": str(body.get("speakerSlot") or "").strip(),
+                            "model": str(body.get("model") or "").strip(),
+                            "systemPrompt": str(body.get("systemPrompt") or "").strip(),
+                            "ttsCaption": str(body.get("ttsCaption") or "").strip(),
+                            "history": body.get("history") if isinstance(body.get("history"), list) else [],
+                            "contextStats": body.get("contextStats") if isinstance(body.get("contextStats"), dict) else {},
+                            "webContext": str(body.get("webContext") or "").strip(),
+                            "webTopic": str(body.get("webTopic") or "").strip(),
+                            "replyLength": str(body.get("replyLength") or "").strip(),
+                            "speechRate": str(body.get("speechRate") or "").strip(),
+                            "emojiStyle": str(body.get("emojiStyle") or "").strip(),
+                        }
+                    )
+                    self.send_json(200, {"ok": True, "event": item})
+                    return
+                after = int(parse_qs(parsed.query).get("after", ["0"])[0] or 0)
+                events = codex_inbox_since(after)
+                latest = events[-1]["id"] if events else Codex_inbox_next_id
+                self.send_json(200, {"events": events, "latestId": latest})
+            except Exception as exc:
+                self.send_json(500, {"error": str(exc)})
+            return
+
         if parsed.path != "/api/chat":
             self.send_error(404)
             return
@@ -2044,6 +2153,51 @@ class Handler(BaseHTTPRequestHandler):
             reply_length = str(body.get("replyLength") or "normal").strip()
             speaker_slot = "second" if str(body.get("speakerSlot") or "") == "second" else "main"
             speaker = str(body.get("speaker") or ("ルヴィア" if body.get("twoPlayerMode") else "リノン")).strip()
+            if model == "__codex_queue__":
+                queued = enqueue_codex_inbox(
+                    {
+                        "source": "chat",
+                        "message": user_text,
+                        "speaker": speaker,
+                        "speakerSlot": speaker_slot,
+                        "model": model,
+                        "systemPrompt": str(body.get("systemPrompt") or "").strip(),
+                        "ttsCaption": str(body.get("ttsCaption") or "").strip(),
+                        "history": history,
+                        "contextStats": {},
+                        "webContext": str(body.get("webContext") or "").strip(),
+                        "webTopic": str(body.get("webTopic") or "").strip(),
+                        "replyLength": reply_length,
+                        "speechRate": speech_rate,
+                        "emojiStyle": emoji_style,
+                    }
+                )
+                self.send_json(
+                    200,
+                    {
+                        "reply": f"Codex queue に送ったよ。id={queued['id']}",
+                        "speaker": speaker,
+                        "model": "Codex queue",
+                        "chunks": [f"Codex queue に送ったよ。id={queued['id']}"],
+                        "emojiStyle": "",
+                        "expression": "broadcast",
+                        "llmEmojiStyle": "",
+                        "autoEmoji": False,
+                        "replyLength": reply_length,
+                        "speechRate": speech_rate,
+                        "durationScale": duration_scale,
+                        "audios": [],
+                        "contextStats": {},
+                        "webSearch": False,
+                        "twoOnlyMode": False,
+                        "webQuery": "",
+                        "webContext": "",
+                        "webResults": [],
+                        "codexQueued": True,
+                        "codexQueueId": queued["id"],
+                    },
+                )
+                return
             two_player_mode = bool(body.get("twoPlayerMode", False))
             two_only_mode = bool(body.get("twoOnlyMode", False)) and two_player_mode
             use_second_speaker = speaker_slot == "second"
@@ -2053,6 +2207,9 @@ class Handler(BaseHTTPRequestHandler):
             tts_caption = str(body.get("ttsCaption") or IRODORI_CAPTION).strip()
             reference_path = sanitize_reference_path(body.get("referencePath"), IRODORI_REF_WAV)
             second_reference_path = sanitize_reference_path(body.get("secondReferencePath"), LUVIA_REF_WAV)
+            tts_backend_mode = str(body.get("ttsBackendMode") or "local").strip().lower()
+            second_tts_host = str(body.get("secondTtsHost") or body.get("secondTtsUrl") or "").strip()
+            second_tts_url = normalize_remote_tts_url(second_tts_host)
             context_limit = int(body.get("contextLimit") or DEFAULT_CONTEXT_LIMIT)
             existing_web_context = str(body.get("webContext") or "").strip()
             web_topic = str(body.get("webTopic") or "").strip()
@@ -2099,8 +2256,16 @@ class Handler(BaseHTTPRequestHandler):
             effective_emoji = emoji_style or llm_emoji
             chunks = split_sentences(reply, limit=chunk_limit)
             reference_wav = second_reference_path if use_second_speaker else reference_path
-            use_remote_tts = use_second_speaker and remote_luvia_enabled()
-            remote_reference_wav = remote_ref_for_luvia(reference_wav) if use_remote_tts else ""
+            use_remote_tts = (
+                use_second_speaker
+                and tts_backend_mode == "remote"
+                and remote_luvia_enabled(second_tts_url)
+            )
+            remote_reference_wav = (
+                remote_ref_for_luvia(reference_wav)
+                if use_remote_tts and LUVIA_REMOTE_TTS_HOST and LUVIA_REMOTE_IRODORI_ROOT and LUVIA_REMOTE_REF_WAV
+                else (LUVIA_REMOTE_REF_WAV if use_remote_tts else "")
+            )
             synthesize = synthesize_sentence_remote_luvia if use_remote_tts else synthesize_sentence
             audios = [
                 synthesize(
@@ -2111,7 +2276,7 @@ class Handler(BaseHTTPRequestHandler):
                     caption=tts_caption,
                     duration_scale=duration_scale,
                     **(
-                        {"remote_ref_wav": remote_reference_wav}
+                        {"remote_ref_wav": remote_reference_wav, "remote_tts_url": second_tts_url}
                         if use_remote_tts
                         else {"ref_wav": reference_wav}
                     ),
@@ -2134,6 +2299,9 @@ class Handler(BaseHTTPRequestHandler):
                     "noDialogue": no_dialogue,
                     "webSearch": use_web_search,
                     "twoOnlyMode": two_only_mode,
+                    "ttsBackendMode": tts_backend_mode,
+                    "secondTtsUrl": second_tts_url,
+                    "secondTtsRemote": use_remote_tts,
                     "webQuery": web_query,
                     "webContext": web_context,
                     "webResults": search_results,
@@ -2178,6 +2346,9 @@ class Handler(BaseHTTPRequestHandler):
                     "contextStats": context_stats,
                     "webSearch": use_web_search,
                     "twoOnlyMode": two_only_mode,
+                    "ttsBackendMode": tts_backend_mode,
+                    "secondTtsUrl": second_tts_url,
+                    "secondTtsRemote": use_remote_tts,
                     "webQuery": web_query,
                     "webContext": web_context,
                     "webResults": search_results,

@@ -369,7 +369,9 @@ select {
 }
 
 .steps,
-.speech-rate-control {
+.speech-rate-control,
+.tts-backend-control,
+.second-tts-host-control {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -419,6 +421,30 @@ select {
   min-width: 128px;
   max-width: 180px;
   padding: 8px 9px;
+}
+
+.tts-backend-control select {
+  min-width: 88px;
+  max-width: 104px;
+  padding: 8px 9px;
+}
+
+.second-tts-host-control {
+  min-width: 188px;
+}
+
+.second-tts-host-control input {
+  width: 156px;
+  min-height: 38px;
+  padding: 8px 9px;
+}
+
+.second-tts-host-control.is-disabled {
+  opacity: 0.48;
+}
+
+.second-tts-host-control input:disabled {
+  cursor: not-allowed;
 }
 
 .toolbar-button {

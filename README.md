@@ -98,12 +98,33 @@ captions, reference audio, and expression images.
 By default, both 1P and 2P voices are generated on the local Irodori-TTS
 environment.
 
-Advanced users can run 2P TTS on a second Windows machine, for example a 4090
-workstation. Configure these variables only if you have that second machine:
+In the main toolbar, use `TTS PC` to choose the runtime mode:
+
+- `1 PC`: generate both 1P and 2P voices on this machine.
+- `2 PCs`: generate 1P locally and send only 2P voice generation to a second
+  machine.
+
+When `2 PCs` is selected, enter the second machine in `2P IP`. An IP-only value
+such as `192.168.0.10` is expanded to `http://192.168.0.10:7874`. You can also
+enter `192.168.0.10:7874` or a full URL.
+
+On the second Windows machine, start the lightweight remote TTS server:
+
+```powershell
+$env:IRODORI_ROOT = "H:\AI\Irodori-TTS"
+$env:LUVIA_SERVER_PORT = "7874"
+python tools\remote_luvia_tts_server.py
+```
+
+The second machine must have Irodori-TTS installed and reachable from the main
+machine. The remote server exposes `/health` and `/synthesize`.
+
+Advanced users can still configure remote 2P TTS through environment variables:
 
 | Variable | Purpose |
 | --- | --- |
 | `LUVIA_REMOTE_TTS_URL` | HTTP server URL for `tools\remote_luvia_tts_server.py` |
+| `LUVIA_REMOTE_DEFAULT_PORT` | Port added when the UI receives an IP-only value, default `7874` |
 | `LUVIA_REMOTE_TTS_HOST` | SSH target used by CLI fallback |
 | `LUVIA_REMOTE_IRODORI_ROOT` | Irodori-TTS path on the remote machine |
 | `LUVIA_REMOTE_REF_WAV` | Reference wav path on the remote machine |

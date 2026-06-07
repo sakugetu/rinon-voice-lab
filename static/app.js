@@ -28,6 +28,8 @@ const autoEmoji = document.querySelector("#autoEmoji");
 const webSearch = document.querySelector("#webSearch");
 const twoPlayerMode = document.querySelector("#twoPlayerMode");
 const twoOnlyMode = document.querySelector("#twoOnlyMode");
+const ttsBackendMode = document.querySelector("#ttsBackendMode");
+const secondTtsHost = document.querySelector("#secondTtsHost");
 const mainCharacterSelect = document.querySelector("#mainCharacterSelect");
 const secondCharacterSelect = document.querySelector("#secondCharacterSelect");
 const openOptionsButton = document.querySelector("#openOptions");
@@ -97,6 +99,7 @@ let lastContextStats = null;
 let audioContext = null;
 let audioSource = null;
 let stereoPanner = null;
+let audioUnlocked = false;
 let expressionImages = {
   neutral: ["/expressions/neutral.png"],
   happy: ["/expressions/happy.png"],
@@ -372,6 +375,15 @@ function setSpeechRate(value) {
   }
 }
 
+function updateTtsBackendControls() {
+  const remote = ttsBackendMode.value === "remote";
+  secondTtsHost.disabled = !remote;
+  secondTtsHost.parentElement.classList.toggle("is-disabled", !remote);
+  secondTtsHost.title = remote
+    ? "Run tools/remote_luvia_tts_server.py on the second PC. IP-only uses port 7874."
+    : "1 PC mode: both 1P and 2P use this PC.";
+}
+
 function wantsNoDialogue(text) {
   return /(?:セリフ禁止|台詞禁止|せりふ禁止|セリフは最小|台詞は最小)/.test(String(text || ""));
 }
@@ -453,6 +465,15 @@ function ensureAudioPanner() {
     audioContext.resume().catch(() => {});
   }
   return Boolean(stereoPanner);
+}
+
+function unlockAudioPlayback() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  ensureAudioPanner();
+  if (player.paused) {
+    player.play().catch(() => {});
+  }
 }
 
 function updateAudioPan(speaker = "") {
@@ -824,6 +845,8 @@ function sessionPayload() {
       steps: Number(stepsInput.value || 12),
       speechRate: speechRate.value,
       replyLength: replyLength.value,
+      ttsBackendMode: ttsBackendMode.value,
+      secondTtsHost: secondTtsHost.value.trim(),
       autoEmoji: autoEmoji.checked,
       webSearch: webSearch.checked,
       twoPlayerMode: twoPlayerMode.checked,
@@ -902,6 +925,11 @@ function applySession(profile) {
   if (settings.steps) stepsInput.value = settings.steps;
   setSpeechRate(settings.speechRate);
   if (settings.replyLength) replyLength.value = settings.replyLength;
+  ttsBackendMode.value = settings.ttsBackendMode === "remote" ? "remote" : "local";
+  if (Object.prototype.hasOwnProperty.call(settings, "secondTtsHost")) {
+    secondTtsHost.value = settings.secondTtsHost || "";
+  }
+  updateTtsBackendControls();
   autoEmoji.checked = Boolean(settings.autoEmoji ?? true);
   webSearch.checked = Boolean(settings.webSearch ?? false);
   twoPlayerMode.checked = Boolean(settings.twoPlayerMode ?? false);
@@ -998,6 +1026,9 @@ function playNext() {
 }
 
 player.addEventListener("ended", playNext);
+document.addEventListener("pointerdown", unlockAudioPlayback, { passive: true, once: true });
+document.addEventListener("keydown", unlockAudioPlayback, { passive: true, once: true });
+document.addEventListener("touchstart", unlockAudioPlayback, { passive: true, once: true });
 
 function speakerForExternalEvent(event) {
   if (event.speakerSlot === "second") {
@@ -1071,6 +1102,11 @@ async function refreshStatus() {
     }
     mainReferencePath = mainReferencePath || data.reference || "";
     secondReferencePath = secondReferencePath || data.luviaReference || "";
+    if (diagnostics.remoteLuviaEnabled && !secondTtsHost.dataset.touched) {
+      ttsBackendMode.value = "remote";
+      secondTtsHost.value = data.luviaRemoteTtsUrl || diagnostics.remoteLuviaUrl || secondTtsHost.value;
+      updateTtsBackendControls();
+    }
     renderCharacterEditor();
     if (data.irodoriReady) {
       const remoteLabel = diagnostics.remoteLuviaEnabled ? " / 2P remote on" : " / 2P local";
@@ -1091,6 +1127,10 @@ async function refreshStatus() {
     );
     setExpression("neutral");
     modelSelect.innerHTML = "";
+    const codexOption = document.createElement("option");
+    codexOption.value = "__codex_queue__";
+    codexOption.textContent = "Codex (queue)";
+    modelSelect.appendChild(codexOption);
     for (const model of data.models) {
       const option = document.createElement("option");
       option.value = model;
@@ -1098,6 +1138,7 @@ async function refreshStatus() {
       modelSelect.appendChild(option);
     }
     const preferred =
+      [...modelSelect.options].find((opt) => opt.value === "__codex_queue__" && opt.dataset.preferred === "1") ||
       [...modelSelect.options].find((opt) => opt.value === "gemma-4-31b-it") ||
       [...modelSelect.options].find((opt) => opt.value.toLowerCase().includes("gemma"));
     if (preferred) modelSelect.value = preferred.value;
@@ -1172,6 +1213,8 @@ async function sendChatTurn({
         secondReferencePath: stage.slot === "second" ? stage.referencePath : secondReferencePath,
         twoPlayerMode: twoPlayerMode.checked,
         twoOnlyMode: twoPlayerMode.checked && twoOnlyMode.checked,
+        ttsBackendMode: ttsBackendMode.value,
+        secondTtsHost: secondTtsHost.value.trim(),
         contextLimit: Number(contextLimit.value || 8200),
         emojiStyle: autoEmoji.checked ? "" : currentEmojiStyle(),
         autoEmoji: autoEmoji.checked,
@@ -1215,7 +1258,15 @@ async function sendChatTurn({
     lastAssistantSpeaker = data.speaker || speaker;
     lastAssistantText = data.reply;
     updateContextUsage();
-    playQueue(data.audios, data.speaker || speaker, { append: backgroundAuto });
+    if (Array.isArray(data.audios) && data.audios.length) {
+      playQueue(data.audios, data.speaker || speaker, { append: backgroundAuto });
+    } else {
+      setStageStatus(data.codexQueued ? "codex queued" : "ready", data.speaker || speaker);
+      setSpeakingState(false, data.speaker || speaker);
+      if (!backgroundAuto && !interactionLocked) {
+        setInteractionLocked(false);
+      }
+    }
     return true;
   } catch (error) {
     autoMode = false;
@@ -1340,6 +1391,11 @@ function stopAutoConversation() {
 
 autoEmoji.addEventListener("change", refreshEmojiInputs);
 twoPlayerMode.addEventListener("change", updateTwoPlayerMode);
+ttsBackendMode.addEventListener("change", updateTtsBackendControls);
+secondTtsHost.addEventListener("input", () => {
+  secondTtsHost.dataset.touched = "1";
+  updateTtsBackendControls();
+});
 openOptionsButton.addEventListener("click", openOptions);
 closeOptionsButton.addEventListener("click", closeOptions);
 optionsModal.addEventListener("click", (event) => {
@@ -1483,6 +1539,7 @@ async function initialize() {
   updateTwoPlayerMode();
   await refreshStatus();
   await loadSession(true);
+  updateTtsBackendControls();
   await primeExternalSpeakEvents();
   window.setInterval(pollExternalSpeakEvents, 1500);
 }

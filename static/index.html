@@ -10,7 +10,7 @@
 <body>
   <div class="app-badge">
     <span class="app-name">Rinon Voice Lab</span>
-    <span class="app-version">v0.1.44</span>
+    <span class="app-version">v0.1.45</span>
   </div>
   <main class="shell">
     <section class="stage">
@@ -93,6 +93,17 @@
         <label class="mode-toggle">
           <input id="twoOnlyMode" type="checkbox" />
           <span>2人だけ</span>
+        </label>
+        <label class="tts-backend-control">
+          <span>TTS PC</span>
+          <select id="ttsBackendMode">
+            <option value="local" selected>1 PC</option>
+            <option value="remote">2 PCs</option>
+          </select>
+        </label>
+        <label class="second-tts-host-control" for="secondTtsHost">
+          <span>2P IP</span>
+          <input id="secondTtsHost" type="text" placeholder="192.168.0.10:7874" />
         </label>
       </div>
       <div class="messages" id="messages"></div>
