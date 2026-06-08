@@ -719,8 +719,10 @@ audio {
 }
 
 .option-field input,
+.option-field select,
 .option-field textarea {
   width: 100%;
+  min-width: 0;
 }
 
 .library-actions,

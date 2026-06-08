@@ -1,6 +1,7 @@
 # Rinon Voice Lab
 
-Local character chat and speech app for Windows.
+Local character chat and speech app. Windows is the primary tested platform,
+and macOS support is experimental.
 
 日本語版: [README.ja.md](README.ja.md)
 
@@ -53,8 +54,9 @@ SomeFolder\
 ## Requirements
 
 - Windows 10/11
+- macOS 14 or newer on Apple Silicon (experimental)
 - Python 3.10 or newer
-- Git for Windows
+- Git
 - LM Studio with the local server enabled
 - A local chat model loaded in LM Studio
 - NVIDIA GPU strongly recommended for Irodori-TTS
@@ -64,7 +66,12 @@ The Rinon Voice Lab wrapper uses only the Python standard library directly.
 `requirements.txt` intentionally contains no app-level packages. Irodori-TTS is
 installed into its own virtual environment by `tools\install_irodori_tts.ps1`.
 
-## Quick Start
+macOS cannot use CUDA. On Apple Silicon, Irodori-TTS can use PyTorch MPS when it
+is available; otherwise it falls back to CPU. MPS/CPU use `fp32`, because
+Irodori-TTS `bf16` inference is CUDA/XPU-only. Voice generation may be much
+slower than on an NVIDIA GPU.
+
+## Quick Start (Windows)
 
 1. Clone or download this repository.
 2. Start LM Studio and enable the OpenAI-compatible local server.
@@ -75,6 +82,38 @@ installed into its own virtual environment by `tools\install_irodori_tts.ps1`.
 If Irodori-TTS is not installed yet, `start_chat_uv.bat` runs
 `tools\install_irodori_tts.ps1` automatically. The first install can take a long
 time because PyTorch and model dependencies are large.
+
+## Quick Start (macOS)
+
+1. Start LM Studio and enable the OpenAI-compatible local server.
+2. Load a chat model.
+3. Open Terminal in this repository.
+4. Run:
+
+```bash
+chmod +x start_chat_mac.sh tools/install_irodori_tts.sh
+./start_chat_mac.sh
+```
+
+5. Open `http://127.0.0.1:7862/`.
+
+If Irodori-TTS is not installed yet, `start_chat_mac.sh` runs
+`tools/install_irodori_tts.sh`. On macOS, the installer uses
+`uv sync --extra cpu`. That extra falls back to standard PyPI PyTorch wheels on
+macOS, so Apple Silicon can use MPS when PyTorch reports it as available.
+
+The macOS script uses Python 3.10 by default because PyTorch wheels may not be
+available for newer Python versions such as 3.14. To override it:
+
+```bash
+IRODORI_PYTHON_VERSION=3.13 ./start_chat_mac.sh
+```
+
+To place Irodori-TTS somewhere else:
+
+```bash
+IRODORI_ROOT="$PWD/.deps/Irodori-TTS" ./start_chat_mac.sh
+```
 
 ## Manual Install
 
@@ -98,6 +137,12 @@ powershell -ExecutionPolicy Bypass -File tools\install_irodori_tts.ps1 -TorchExt
 
 CPU mode is mainly for testing. Voice generation can be very slow.
 
+For macOS:
+
+```bash
+IRODORI_TORCH_EXTRA=cpu tools/install_irodori_tts.sh
+```
+
 ## Configuration
 
 Useful environment variables:
@@ -109,6 +154,10 @@ Useful environment variables:
 | `LM_STUDIO_MODEL` | `gemma-4-12b-it` | Preferred model name |
 | `LM_STUDIO_CONTEXT_LIMIT` | `8200` | Visible context budget |
 | `IRODORI_TORCH_EXTRA` | `cu128` | Installer torch extra: `cu128`, `cpu`, `rocm`, or `xpu` |
+| `IRODORI_MODEL_DEVICE` | `auto` | Irodori-TTS model device: `auto`, `cuda`, `mps`, `cpu`, or `xpu` |
+| `IRODORI_MODEL_PRECISION` | `auto` | Model precision: `auto`, `fp32`, or `bf16` |
+| `IRODORI_CODEC_DEVICE` | `auto` | Codec device, usually the same as the model device |
+| `IRODORI_CODEC_PRECISION` | `auto` | Codec precision. macOS uses `fp32` |
 
 ## Character Data
 
@@ -149,6 +198,15 @@ python tools\remote_luvia_tts_server.py
 
 The second machine must have Irodori-TTS installed and reachable from the main
 machine. The remote server exposes `/health` and `/synthesize`.
+
+On macOS or Linux, start the remote TTS server with:
+
+```bash
+IRODORI_ROOT="$PWD/../Irodori-TTS" \
+LUVIA_SERVER_PORT=7874 \
+IRODORI_MODEL_DEVICE=auto \
+python tools/remote_luvia_tts_server.py
+```
 
 ## External Speak Mode
 
@@ -207,6 +265,13 @@ Useful development checks:
 node --check static\app.js
 $env:PYTHONDONTWRITEBYTECODE='1'
 ..\Irodori-TTS\.venv\Scripts\python.exe -B -m py_compile app.py tools\remote_luvia_tts_server.py
+```
+
+macOS:
+
+```bash
+node --check static/app.js
+PYTHONDONTWRITEBYTECODE=1 python3.10 -B -m py_compile app.py tools/remote_luvia_tts_server.py
 ```
 
 ## License

@@ -2,6 +2,7 @@ const messagesEl = document.querySelector("#messages");
 const composer = document.querySelector("#composer");
 const messageInput = document.querySelector("#message");
 const sendButton = document.querySelector("#send");
+const sendShortcut = document.querySelector("#sendShortcut");
 const autoStartButton = document.querySelector("#autoStart");
 const player = document.querySelector("#player");
 const saveAudioButton = document.querySelector("#saveAudio");
@@ -100,6 +101,7 @@ let audioContext = null;
 let audioSource = null;
 let stereoPanner = null;
 let audioUnlocked = false;
+let messageInputComposing = false;
 let expressionImages = {
   neutral: ["/expressions/neutral.png"],
   happy: ["/expressions/happy.png"],
@@ -497,6 +499,24 @@ function setSelectValue(select, value) {
   select.value = value;
 }
 
+function normalizeSendShortcut(value) {
+  if (value === "meta-enter" || value === "ctrl-enter") return value;
+  return "enter";
+}
+
+function eventMatchesSendShortcut(event) {
+  if (event.key !== "Enter") return false;
+  if (event.isComposing || messageInputComposing || event.keyCode === 229) return false;
+  const shortcut = normalizeSendShortcut(sendShortcut.value);
+  if (shortcut === "meta-enter") {
+    return event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+  }
+  if (shortcut === "ctrl-enter") {
+    return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  }
+  return !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+}
+
 function shortPathLabel(path) {
   const text = String(path || "").trim();
   if (!text) return "default reference";
@@ -845,6 +865,7 @@ function sessionPayload() {
       steps: Number(stepsInput.value || 12),
       speechRate: speechRate.value,
       replyLength: replyLength.value,
+      sendShortcut: normalizeSendShortcut(sendShortcut.value),
       ttsBackendMode: ttsBackendMode.value,
       secondTtsHost: secondTtsHost.value.trim(),
       autoEmoji: autoEmoji.checked,
@@ -925,6 +946,7 @@ function applySession(profile) {
   if (settings.steps) stepsInput.value = settings.steps;
   setSpeechRate(settings.speechRate);
   if (settings.replyLength) replyLength.value = settings.replyLength;
+  sendShortcut.value = normalizeSendShortcut(settings.sendShortcut);
   ttsBackendMode.value = settings.ttsBackendMode === "remote" ? "remote" : "local";
   if (Object.prototype.hasOwnProperty.call(settings, "secondTtsHost")) {
     secondTtsHost.value = settings.secondTtsHost || "";
@@ -1527,8 +1549,16 @@ saveAudioButton.addEventListener("click", async () => {
   }
 });
 
+messageInput.addEventListener("compositionstart", () => {
+  messageInputComposing = true;
+});
+
+messageInput.addEventListener("compositionend", () => {
+  messageInputComposing = false;
+});
+
 messageInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (eventMatchesSendShortcut(event)) {
     event.preventDefault();
     composer.requestSubmit();
   }

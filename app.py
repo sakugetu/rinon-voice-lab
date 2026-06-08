@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import mimetypes
 import os
@@ -13,6 +14,7 @@ import time
 import uuid
 import urllib.error
 import urllib.request
+import warnings
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html import unescape as html_unescape
@@ -44,6 +46,23 @@ WEB_SEARCH_TIMEOUT = int(os.environ.get("WEB_SEARCH_TIMEOUT", "12"))
 IRODORI_CHECKPOINT = os.environ.get(
     "IRODORI_CHECKPOINT", "Aratako/Irodori-TTS-600M-v3-VoiceDesign"
 )
+DEFAULT_IRODORI_RUNTIME = "auto"
+IRODORI_MODEL_DEVICE = os.environ.get(
+    "IRODORI_MODEL_DEVICE",
+    os.environ.get("IRODORI_DEVICE", DEFAULT_IRODORI_RUNTIME),
+).strip() or DEFAULT_IRODORI_RUNTIME
+IRODORI_MODEL_PRECISION = os.environ.get(
+    "IRODORI_MODEL_PRECISION",
+    os.environ.get("IRODORI_PRECISION", DEFAULT_IRODORI_RUNTIME),
+).strip() or DEFAULT_IRODORI_RUNTIME
+IRODORI_CODEC_DEVICE = os.environ.get(
+    "IRODORI_CODEC_DEVICE",
+    os.environ.get("IRODORI_DEVICE", DEFAULT_IRODORI_RUNTIME),
+).strip() or DEFAULT_IRODORI_RUNTIME
+IRODORI_CODEC_PRECISION = os.environ.get(
+    "IRODORI_CODEC_PRECISION",
+    os.environ.get("IRODORI_PRECISION", DEFAULT_IRODORI_RUNTIME),
+).strip() or DEFAULT_IRODORI_RUNTIME
 IRODORI_CAPTION = os.environ.get(
     "IRODORI_CAPTION",
     (
@@ -85,6 +104,42 @@ External_speak_next_id = 0
 Codex_inbox_lock = threading.Lock()
 Codex_inbox = deque(maxlen=120)
 Codex_inbox_next_id = 0
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"`torch\.nn\.utils\.weight_norm` is deprecated in favor of `torch\.nn\.utils\.parametrizations\.weight_norm`.*",
+    category=FutureWarning,
+)
+
+
+def suppress_irodori_log_line(line: str) -> bool:
+    return line.startswith(
+        (
+            "Using the default SDR of ",
+            "WARNING! Reducing the sampling rate of the original audio from ",
+        )
+    )
+
+
+class FilteredIrodoriStdout:
+    def __init__(self, target) -> None:
+        self.target = target
+        self.buffer = ""
+
+    def write(self, text: str) -> int:
+        self.buffer += text
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            if not suppress_irodori_log_line(line):
+                self.target.write(f"{line}\n")
+        return len(text)
+
+    def flush(self) -> None:
+        if self.buffer:
+            if not suppress_irodori_log_line(self.buffer):
+                self.target.write(self.buffer)
+            self.buffer = ""
+        self.target.flush()
 
 
 def json_bytes(payload: object) -> bytes:
@@ -748,6 +803,7 @@ def save_session_profile(payload: dict) -> dict:
             "steps": int(settings.get("steps") or 12),
             "speechRate": str(settings.get("speechRate") or "normal"),
             "replyLength": str(settings.get("replyLength") or "normal"),
+            "sendShortcut": str(settings.get("sendShortcut") or "enter"),
             "ttsBackendMode": str(settings.get("ttsBackendMode") or "local"),
             "secondTtsHost": str(settings.get("secondTtsHost") or ""),
             "autoEmoji": bool(settings.get("autoEmoji", True)),
@@ -804,7 +860,83 @@ def command_exists(name: str) -> bool:
 
 
 def irodori_python_path() -> Path:
-    return IRODORI_ROOT / ".venv" / "Scripts" / "python.exe"
+    override = os.environ.get("IRODORI_PYTHON", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    if os.name == "nt":
+        return IRODORI_ROOT / ".venv" / "Scripts" / "python.exe"
+    return IRODORI_ROOT / ".venv" / "bin" / "python"
+
+
+def is_auto_runtime_value(value: str) -> bool:
+    return str(value or "").strip().lower() in {"", "auto", "default"}
+
+
+def default_irodori_runtime_device() -> str:
+    from irodori_tts.inference_runtime import default_runtime_device
+
+    return default_runtime_device()
+
+
+def irodori_precision_for_device(device: str, requested: str) -> str:
+    if not is_auto_runtime_value(requested):
+        return str(requested).strip().lower()
+    from irodori_tts.inference_runtime import list_available_runtime_precisions
+
+    choices = list_available_runtime_precisions(device)
+    device_type = str(device).split(":", 1)[0].lower()
+    if device_type in {"cuda", "xpu"} and "bf16" in choices:
+        return "bf16"
+    return choices[0] if choices else "fp32"
+
+
+def irodori_runtime_settings() -> dict[str, str]:
+    model_device = IRODORI_MODEL_DEVICE
+    codec_device = IRODORI_CODEC_DEVICE
+    if is_auto_runtime_value(model_device) or is_auto_runtime_value(codec_device):
+        default_device = default_irodori_runtime_device()
+        if is_auto_runtime_value(model_device):
+            model_device = default_device
+        if is_auto_runtime_value(codec_device):
+            codec_device = default_device
+    return {
+        "modelDevice": str(model_device).strip().lower(),
+        "modelPrecision": irodori_precision_for_device(model_device, IRODORI_MODEL_PRECISION),
+        "codecDevice": str(codec_device).strip().lower(),
+        "codecPrecision": irodori_precision_for_device(codec_device, IRODORI_CODEC_PRECISION),
+    }
+
+
+def quiet_irodori_watermark_warnings() -> None:
+    import irodori_tts.inference_runtime as inference_runtime
+
+    base_watermarker = inference_runtime.SilentCipherWatermarker
+    if getattr(base_watermarker, "__rinon_quiet__", False):
+        return
+
+    class QuietSilentCipherWatermarker(base_watermarker):
+        __rinon_quiet__ = True
+
+        def __init__(self, *args, **kwargs) -> None:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"`torch\.nn\.utils\.weight_norm` is deprecated in favor of `torch\.nn\.utils\.parametrizations\.weight_norm`.*",
+                    category=FutureWarning,
+                )
+                super().__init__(*args, **kwargs)
+
+        def encode_batch(self, audios: list, *, sample_rate: int) -> list:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"An output with one or more elements was resized since it had shape \[\].*",
+                    category=UserWarning,
+                )
+                with contextlib.redirect_stdout(FilteredIrodoriStdout(sys.stdout)):
+                    return super().encode_batch(audios, sample_rate=sample_rate)
+
+    inference_runtime.SilentCipherWatermarker = QuietSilentCipherWatermarker
 
 
 def normalize_remote_tts_url(value: object) -> str:
@@ -850,6 +982,10 @@ def environment_diagnostics() -> dict:
         "irodoriProjectExists": irodori_pyproject.exists(),
         "gitExists": command_exists("git"),
         "uvExists": command_exists("uv"),
+        "irodoriModelDevice": IRODORI_MODEL_DEVICE,
+        "irodoriModelPrecision": IRODORI_MODEL_PRECISION,
+        "irodoriCodecDevice": IRODORI_CODEC_DEVICE,
+        "irodoriCodecPrecision": IRODORI_CODEC_PRECISION,
         "lmStudioUrl": LM_STUDIO_URL,
         "lmStudioReady": bool(lm_models),
         "models": lm_models,
@@ -1509,6 +1645,7 @@ def ensure_irodori_module():
     try:
         import gradio_app_voicedesign as app_vd
 
+        quiet_irodori_watermark_warnings()
         Irodori_module = app_vd
         return Irodori_module
     finally:
@@ -1532,13 +1669,14 @@ def synthesize_sentence(
     os.chdir(IRODORI_ROOT)
     try:
         with Irodori_lock:
+            runtime = irodori_runtime_settings()
             start = time.perf_counter()
             result = module._run_generation(
                 IRODORI_CHECKPOINT,
-                "cuda",
-                "bf16",
-                "cuda",
-                "bf16",
+                runtime["modelDevice"],
+                runtime["modelPrecision"],
+                runtime["codecDevice"],
+                runtime["codecPrecision"],
                 styled_text,
                 voice_caption,
                 str(reference_wav) if reference_wav.exists() else None,
@@ -1587,6 +1725,10 @@ def synthesize_sentence(
         "emojiStyle": emoji_style,
         "speechRate": "fast" if float(duration_scale) < 0.99 else "normal",
         "durationScale": float(duration_scale),
+        "modelDevice": runtime["modelDevice"],
+        "modelPrecision": runtime["modelPrecision"],
+        "codecDevice": runtime["codecDevice"],
+        "codecPrecision": runtime["codecPrecision"],
         "expression": expression_for_emoji(emoji_style),
         "url": f"/generated/{safe_name}",
         "elapsed": round(elapsed, 3),

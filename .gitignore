@@ -9,3 +9,4 @@ static/generated/
 .env
 .venv/
 venv/
+.deps/
