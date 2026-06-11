@@ -1602,7 +1602,7 @@ def request_lmstudio(
         f"{no_dialogue_instruction}\n"
         f"{two_only_instruction}\n"
         f"{length_instruction}"
-        "思考過程は出さず、最終回答だけを出してください。/no_think"
+        "思考過程は出さず、最終回答だけを出してください。 /no_think"
         f"{emoji_instruction}"
     )
     req = urllib.request.Request(
