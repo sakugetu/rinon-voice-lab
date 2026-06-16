@@ -47,6 +47,7 @@
 
 ## 3. 確定した技術判断（再検証不要）
 - **役者モデル＝`gemma-4-12b-it` が配布基準**（2026-06-16 朔さん決定）。理由＝配布時にプレイできる人を増やす（31Bは高スペックを要求しプレイヤーが減る）。`gemma-4-31b-it` はキャラの芯・テンポが上で**高スペック向け任意**。12Bはやや冗長・情緒寄りだが、話者混在ガード＋ト書き除去でクリーンに動作（第一話で実証）
+- **作家層(author_gen)も12Bで実用可**（選択肢ラベル中立化の指示込みで検証OK・キャラ名混入0）。＝**作家・役者・ドローン、ゲーム全要素が12Bで完結**し配布可能
 - **Qwen系は不適合**: qwen3/3.5/3.6系は思考モデルで`content`が空（/no_think・enable_thinking効かず）。VL版(qwen3-vl-*)は喋るが「俺/お前」に人称崩れ・話者混在・低速(717s)。→ 当面除外。再挑戦するなら非思考の**Qwen2.5-Instruct(テキスト)**
 - **読み上げ対応＝ト書き(括弧描写)除去必須**。`strip_stage_directions()`で全角/半角括弧を除去。本体 `app.py` にも反映済み（`strip_irodori_style_marks`の後＋プロンプトに禁止文）
 - **3択は3回**（beat2/4/6）。シナリオは7ビート・うち3つがchoice
@@ -60,8 +61,8 @@
 
 | スクリプト | 役割 | 主な実行例 |
 |---|---|---|
-| `author_gen.py` | シナリオ作家（第一話設定が`FIXED_CARD`） | `AUTHOR_MODEL=gemma-4-31b-it python author_gen.py` → `out_author/scenario_01.json` |
-| `play_scenario.py` | 上演(ドローン無し) | `PICKS="2,1,3" ACTOR_MODEL=gemma-4-31b-it PYTHONIOENCODING=utf-8 python play_scenario.py` → `out_play/play.txt` |
+| `author_gen.py` | シナリオ作家（第一話設定が`FIXED_CARD`） | `AUTHOR_MODEL=gemma-4-12b-it python author_gen.py` → `out_author/scenario_01.json` |
+| `play_scenario.py` | 上演(ドローン無し) | `PICKS="2,1,3" PYTHONIOENCODING=utf-8 python play_scenario.py` → `out_play/play.txt`（既定ACTOR=12B） |
 | `play_mecha.py` | 上演(支援ドローン『ハチ』付き) | `PICKS="2,1,3" MECHA_NAME=ハチ python play_mecha.py` → `out_play/mecha.txt` |
 | `run_bench_v4.py` | 役者ベンチ(適時投入・結末確定型) | `BENCH_MODEL=... BENCH_OUT=out_x BENCH_RUNS=3 BENCH_TURNS=24 python run_bench_v4.py` |
 | `emotion_report.py` | 5軸感情採点(現状 out_v3 固定) | `python emotion_report.py`（汎用化が必要・下記） |
