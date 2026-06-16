@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 CHAR_DIR = os.path.normpath(os.path.join(ROOT, "..", "..", "Character"))
 OUT = os.path.join(ROOT, "out_play"); os.makedirs(OUT, exist_ok=True)
 LM_URL = os.environ.get("LM_STUDIO_URL", "http://127.0.0.1:1234/v1").rstrip("/")
-ACTOR = os.environ.get("ACTOR_MODEL", "gemma-4-31b-it")
+ACTOR = os.environ.get("ACTOR_MODEL", "gemma-4-12b-it")  # 配布基準=12B（31Bは高スペック任意）
 MECHA_NAME = os.environ.get("MECHA_NAME", "ハチ")
 WINDOW = 14
 TURNS_PER_BEAT = int(os.environ.get("TURNS_PER_BEAT", "4"))
