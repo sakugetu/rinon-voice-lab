@@ -50,6 +50,7 @@ def call(speaker, history):
     msg = str(data["choices"][0]["message"].get("content") or "").strip()
     msg = re.sub(r"^(リノン|ルヴィア)\s*[:：]\s*", "", msg)
     msg = re.sub(r"<think>.*?</think>", "", msg, flags=re.S).strip()
+    msg = re.split(r"(?:リノン|ルヴィア)\s*[:：]", msg)[0].strip()  # 話者混在ガード
     return strip_stage_directions(msg) or "（無音）"
 
 def inject(history, log, text):

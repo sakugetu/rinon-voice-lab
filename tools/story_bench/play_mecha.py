@@ -53,6 +53,8 @@ def call(system, msgs_tail, ask):
     msg = str(data["choices"][0]["message"].get("content") or "").strip()
     msg = re.sub(r"^(リノン|ルヴィア|" + MECHA_NAME + r")\s*[:：]\s*", "", msg)
     msg = re.sub(r"<think>.*?</think>", "", msg, flags=re.S).strip()
+    # 話者混在ガード: 1発言に別話者が混ざったら最初のセグメントだけ採用
+    msg = re.split(r"(?:リノン|ルヴィア|" + re.escape(MECHA_NAME) + r")\s*[:：]", msg)[0].strip()
     return strip_sd(msg) or "（無音）"
 
 def main():

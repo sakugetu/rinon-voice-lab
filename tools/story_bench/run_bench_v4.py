@@ -91,6 +91,7 @@ def call(speaker, history):
     msg = str(data["choices"][0]["message"].get("content") or "").strip()
     msg = re.sub(r"^(リノン|ルヴィア)\s*[:：]\s*", "", msg)
     msg = re.sub(r"<think>.*?</think>", "", msg, flags=re.S).strip()
+    msg = re.split(r"(?:リノン|ルヴィア)\s*[:：]", msg)[0].strip()  # 話者混在ガード
     msg = strip_stage_directions(msg)   # ← 読み上げ用にト書き除去
     if not msg:
         msg = "（無音=ト書きのみ生成）"   # セリフ皆無=要再生成の検出マーカー
