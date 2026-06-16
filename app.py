@@ -1212,6 +1212,18 @@ def strip_irodori_style_marks(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def strip_stage_directions(text: str) -> str:
+    """読み上げ不可のト書き/状況描写（括弧書き）を除去する。
+    例: 「（震える指先で画面を指す）……」→「……」。
+    セリフ鉤括弧「」は表示に使うので残す。"""
+    t = str(text or "")
+    # 全角・半角の括弧で囲まれた描写を除去（非貪欲・ネスト無し前提）
+    t = re.sub(r"[（(][^（）()]*[）)]", "", t)
+    # 閉じ括弧欠落の保険: 開き括弧以降にセリフ括弧が無ければ末尾まで落とす
+    t = re.sub(r"[（(][^「」]*$", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def sanitize_no_dialogue_reply(text: str) -> str:
     allowed_fragments = (
         "好き",
@@ -1602,6 +1614,8 @@ def request_lmstudio(
         f"{no_dialogue_instruction}\n"
         f"{two_only_instruction}\n"
         f"{length_instruction}"
+        "ト書き・状況説明・動作描写を書かないこと。括弧（）や()で囲んだ描写、"
+        "『〜しながら』等の地の文は禁止。読み上げられるセリフ本文だけを出すこと。"
         "思考過程は出さず、最終回答だけを出してください。/no_think"
         f"{emoji_instruction}"
     )
@@ -1625,6 +1639,7 @@ def request_lmstudio(
     allowed_emojis = {item["emoji"] for item in load_emoji_items()}
     message, emoji = parse_lmstudio_reply(content, allowed_emojis) if auto_emoji else (content, "")
     message = strip_irodori_style_marks(message)
+    message = strip_stage_directions(message)  # 読み上げ用にト書き(括弧描写)を除去
     if no_dialogue:
         message = sanitize_no_dialogue_reply(message)
     if not message:
