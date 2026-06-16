@@ -72,11 +72,19 @@ FIXED_CARD = {
     "hook": "小さな事件だが、その記憶断片こそ、連続事件の背後にある『第三のAIの囚われた記憶』への最初の糸口。二人は捜査方針を選びながら、事件を決着させ手がかりを掴む。"
 }
 
+WORLD = os.environ.get("WORLD_STATE", "")  # 世界均衡メタパラメータ（秩序⇔自由）
+OUT_FILE = os.environ.get("OUT_FILE", "scenario_01.json")
+
 def main():
-    print(f"[author] model={AUTHOR}（題材固定: 意識の在処）", flush=True)
+    print(f"[author] model={AUTHOR} world='{WORLD}'", flush=True)
     card = FIXED_CARD
-    scen = chat(SCEN_SYS, f"この状況カードを台本設計図に展開して:\n{json.dumps(card, ensure_ascii=False)}", 2200)
-    json.dump(scen, open(os.path.join(OUT, "scenario_01.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    world_directive = (
+        f"\n\n【現在の世界の均衡】{WORLD}\n"
+        "この世界状態を、事件のトーン・舞台の空気・容疑者像・賭け金・選択肢の枠組みに必ず反映せよ。"
+        "ただし本筋の謎（第三のAIの囚われた記憶）のラダーは変えない。世界状態は味付け、背骨は固定。"
+    ) if WORLD else ""
+    scen = chat(SCEN_SYS, f"この状況カードを台本設計図に展開して:\n{json.dumps(card, ensure_ascii=False)}{world_directive}", 2200)
+    json.dump(scen, open(os.path.join(OUT, OUT_FILE), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     iss = validate(scen)
     print(f"\n=== 展開シナリオ(card1) 検証: {'OK' if not iss else iss} ===", flush=True)
     print(f"title: {scen.get('title')}", flush=True)
