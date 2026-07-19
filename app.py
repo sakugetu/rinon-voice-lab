@@ -38,6 +38,8 @@ IRODORI_ROOT = Path(os.environ.get("IRODORI_ROOT", str(DEFAULT_IRODORI_ROOT))).r
 LM_STUDIO_URL = os.environ.get("LM_STUDIO_URL", "http://127.0.0.1:1234/v1").rstrip("/")
 DEFAULT_MODEL = os.environ.get("LM_STUDIO_MODEL", "gemma-4-12b-it")
 DEFAULT_CONTEXT_LIMIT = int(os.environ.get("LM_STUDIO_CONTEXT_LIMIT", "8200"))
+# キャラクター返答の生成待ち時間（秒）。返答が遅くて "timed out" になる場合はこの値を延ばす。
+LM_STUDIO_TIMEOUT = int(os.environ.get("LM_STUDIO_TIMEOUT", "90"))
 LM_COMPACT_CONTEXT_LIMIT = int(os.environ.get("LM_COMPACT_CONTEXT_LIMIT", "4200"))
 LM_RECENT_MESSAGE_COUNT = int(os.environ.get("LM_RECENT_MESSAGE_COUNT", "12"))
 LM_SUMMARY_CHAR_LIMIT = int(os.environ.get("LM_SUMMARY_CHAR_LIMIT", "1400"))
@@ -1611,7 +1613,7 @@ def request_lmstudio(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=90) as res:
+    with urllib.request.urlopen(req, timeout=LM_STUDIO_TIMEOUT) as res:
         data = json.loads(res.read().decode("utf-8"))
     choice_message = data["choices"][0]["message"]
     content = str(choice_message.get("content") or "").strip()
