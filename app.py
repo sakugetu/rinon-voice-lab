@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 import urllib.error
 import urllib.request
@@ -1964,6 +1965,170 @@ def external_speak_events_after(after_id: int) -> list[dict]:
         return [event for event in External_speak_events if int(event.get("id") or 0) > after_id]
 
 
+def _resolve_local_wav(item: dict) -> Path | None:
+    """1 つの分割音声 item から、結合に使うローカル WAV ファイルのパスを解決する。
+
+    優先度: 我々が一意な名前で ``static/generated`` に複製した公開ファイル（url 由来）。
+    これが無い場合のみ、元の ``source`` パスにフォールバックする。source は Irodori の
+    出力パス（ファイル名が再利用され上書きされる恐れがある）やリモートパスのことがあるため、
+    一意名で管理している公開コピーを優先することで結合の正確性を担保する。
+    """
+    if not isinstance(item, dict):
+        return None
+    url = str(item.get("url") or "")
+    if url:
+        name = Path(unquote(urlparse(url).path or url)).name
+        if name:
+            candidate = STATIC_ROOT / "generated" / name
+            if candidate.exists():
+                return candidate
+    raw = item.get("source")
+    if raw:
+        candidate = Path(str(raw))
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _read_wav_chunks(path: Path) -> tuple[bytes, bytes]:
+    """WAV(RIFF) ファイルから fmt チャンク本体と data チャンクのペイロードを取り出す。
+
+    Python 標準の ``wave`` モジュールは PCM(フォーマット 1) しか扱えず、Irodori-TTS が
+    出力する IEEE float(フォーマット 3) の WAV では ``wave.Error: unknown format: 3`` に
+    なる。ここでは RIFF を直接パースすることで、PCM/float いずれのフォーマットでも
+    フレームデータを取り出せるようにする。
+    """
+    raw = path.read_bytes()
+    if len(raw) < 12 or raw[0:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        raise ValueError(f"not a RIFF/WAVE file: {path}")
+    fmt_body: bytes | None = None
+    data_payload = bytearray()
+    pos = 12
+    total = len(raw)
+    while pos + 8 <= total:
+        chunk_id = raw[pos : pos + 4]
+        chunk_size = int.from_bytes(raw[pos + 4 : pos + 8], "little")
+        body_start = pos + 8
+        body_end = min(body_start + chunk_size, total)
+        body = raw[body_start:body_end]
+        if chunk_id == b"fmt " and fmt_body is None:
+            fmt_body = body
+        elif chunk_id == b"data":
+            data_payload += body
+        # チャンクは 2 バイト境界にパディングされる（宣言サイズが奇数なら +1）
+        pos = body_start + chunk_size + (chunk_size & 1)
+    if fmt_body is None:
+        raise ValueError(f"no fmt chunk in {path}")
+    if not data_payload:
+        raise ValueError(f"no data chunk in {path}")
+    return fmt_body, bytes(data_payload)
+
+
+def _write_wav(output_path: Path, fmt_body: bytes, data_payload: bytes) -> None:
+    """fmt チャンク本体と結合済み data ペイロードから 1 つの WAV(RIFF) を書き出す。"""
+    fmt_chunk = b"fmt " + len(fmt_body).to_bytes(4, "little") + fmt_body
+    if len(fmt_body) & 1:
+        fmt_chunk += b"\x00"
+
+    chunks = fmt_chunk
+    # 非 PCM(float 等) では fact チャンク(サンプル数)の付与が推奨される
+    audio_format = int.from_bytes(fmt_body[0:2], "little") if len(fmt_body) >= 2 else 1
+    block_align = int.from_bytes(fmt_body[12:14], "little") if len(fmt_body) >= 14 else 0
+    if audio_format != 1 and block_align:
+        sample_length = len(data_payload) // block_align
+        chunks += b"fact" + (4).to_bytes(4, "little") + sample_length.to_bytes(4, "little")
+
+    data_chunk = b"data" + len(data_payload).to_bytes(4, "little") + data_payload
+    if len(data_payload) & 1:
+        data_chunk += b"\x00"
+    chunks += data_chunk
+
+    riff = b"RIFF" + (4 + len(chunks)).to_bytes(4, "little") + b"WAVE" + chunks
+    output_path.write_bytes(riff)
+
+
+def combine_wav_files(source_paths: list, output_path: Path) -> Path | None:
+    """時系列順に並んだ複数の WAV ファイルを 1 つに結合する。
+
+    各パスを必ず 1 つずつ個別に安全に開き（リストオブジェクトをそのまま渡さない）、
+    RIFF を直接パースして data チャンクを時系列順に連結する。PCM(1)・IEEE float(3)
+    いずれのフォーマットにも対応する。結合に成功した場合は出力パスを、対象ファイルが
+    1 つも無い場合は None を返す。
+    """
+    parsed: list[tuple[bytes, bytes]] = []
+    for raw in source_paths:
+        if not raw:
+            continue
+        candidate = Path(str(raw))
+        if not candidate.exists():
+            print(f"[combine_wav_files] skip missing source: {candidate}")
+            continue
+        try:
+            parsed.append(_read_wav_chunks(candidate))
+        except Exception:
+            print(f"[combine_wav_files] skip unreadable wav: {candidate}")
+            traceback.print_exc()
+            continue
+    if not parsed:
+        return None
+
+    base_fmt = parsed[0][0]
+    combined = bytearray()
+    for fmt_body, data_payload in parsed:
+        # フォーマットが異なるものを連結すると音声が壊れるためスキップする
+        if fmt_body != base_fmt:
+            print("[combine_wav_files] skip chunk with mismatched fmt")
+            continue
+        combined += data_payload
+    if not combined:
+        return None
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_wav(output_path, base_fmt, bytes(combined))
+    return output_path
+
+
+def build_combined_audio(
+    audios: list,
+    text: str = "",
+    emoji_style: str = "",
+    caption: str = "",
+) -> dict | None:
+    """分割音声（各 item の source）を 1 つの WAV へ結合し、結合済み音声の dict を返す。
+
+    出力は ``static/generated/reply_<timestamp>_combined.wav``。結合対象となる
+    ローカル WAV が無い（例: リモート TTS で source がリモートパス）場合や、
+    結合中に例外が発生した場合は None を返し、呼び出し側は分割音声にフォールバックできる。
+    """
+    if not audios:
+        return None
+    try:
+        source_paths = [_resolve_local_wav(item) for item in audios]
+        combined_name = f"reply_{int(time.time() * 1000)}_combined.wav"
+        combined_output = STATIC_ROOT / "generated" / combined_name
+        combined_path = combine_wav_files(source_paths, combined_output)
+        if combined_path is None:
+            return None
+        return {
+            "text": text or "".join(str(item.get("text") or "") for item in audios),
+            "ttsText": text,
+            "caption": caption,
+            "emojiStyle": emoji_style,
+            "expression": expression_for_emoji(emoji_style),
+            "url": f"/generated/{combined_name}",
+            "name": combined_name,
+            "elapsed": round(
+                sum(float(item.get("elapsed") or 0) for item in audios), 3
+            ),
+            "source": str(combined_path),
+        }
+    except Exception:
+        # 結合に失敗しても分割音声の再生は継続できるよう、原因のみ出力して握りつぶす。
+        print("[build_combined_audio] failed to combine wav files")
+        traceback.print_exc()
+        return None
+
+
 def handle_external_speak(payload: dict) -> dict:
     text = str(payload.get("text") or payload.get("message") or "").strip()
     if not text:
@@ -1994,6 +2159,12 @@ def handle_external_speak(payload: dict) -> dict:
         )
         for index, chunk in enumerate(chunks, start=1)
     ]
+
+    # 分割音声（各 item の source パス）を時系列順に 1 つの WAV へ結合する。
+    combined_audio = build_combined_audio(
+        audios, text=text, emoji_style=emoji_style, caption=caption
+    )
+
     event = publish_external_speak_event(
         {
             "source": "external",
@@ -2002,6 +2173,7 @@ def handle_external_speak(payload: dict) -> dict:
             "text": text,
             "chunks": chunks,
             "audios": audios,
+            "combined": combined_audio,
             "emojiStyle": emoji_style,
             "expression": expression_for_emoji(emoji_style),
             "caption": caption,
@@ -2022,6 +2194,7 @@ def handle_external_speak(payload: dict) -> dict:
             "ttsCaption": caption,
             "reference": str(reference_path),
             "chunkCount": len(chunks),
+            "combinedUrl": (combined_audio or {}).get("url"),
             "audios": [
                 {
                     "text": item.get("text"),
@@ -2437,6 +2610,10 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 for i, chunk in enumerate(chunks, start=1)
             ]
+            # 分割音声を時系列順に 1 つの WAV へ結合する（ローカル TTS のみ対象）。
+            combined_audio = build_combined_audio(
+                audios, text=reply, emoji_style=effective_emoji, caption=tts_caption
+            )
             append_chat_log(
                 {
                     "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -2466,6 +2643,7 @@ class Handler(BaseHTTPRequestHandler):
                     "expression": expression_for_emoji(effective_emoji),
                     "chunkCount": len(chunks),
                     "chunks": chunks,
+                    "combinedUrl": (combined_audio or {}).get("url"),
                     "audios": [
                         {
                             "text": item.get("text"),
@@ -2497,6 +2675,7 @@ class Handler(BaseHTTPRequestHandler):
                     "speechRate": speech_rate,
                     "durationScale": duration_scale,
                     "audios": audios,
+                    "combined": combined_audio,
                     "contextStats": context_stats,
                     "webSearch": use_web_search,
                     "twoOnlyMode": two_only_mode,
