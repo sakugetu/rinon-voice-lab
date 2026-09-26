@@ -1,0 +1,5 @@
+--- venv/Lib/site-packages/audiotools/ml/decorators.py
++++ venv/Lib/site-packages/audiotools/ml/decorators.py
+@@ -288 +288 @@
+-        op: dist.ReduceOp = dist.ReduceOp.AVG,
++        op: "dist.ReduceOp" = dist.ReduceOp.AVG if dist.is_available() else None,

@@ -5,6 +5,11 @@ and macOS support is experimental.
 
 日本語版: [README.ja.md](README.ja.md)
 
+DAIV CX: `start_chat.bat` selects Standard or the isolated AMD ROCm mode
+(GPU speech generation, CPU codec, watermark disabled).
+See [setup](docs/CX_SETUP.md), [testing](docs/CX_TESTING.md),
+[validation](docs/CX_VALIDATION.md), and [updates / rollback](docs/CX_UPDATES.md) (Japanese).
+
 Rinon Voice Lab connects:
 
 - LM Studio OpenAI-compatible local chat

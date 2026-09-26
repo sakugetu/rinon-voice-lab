@@ -22,6 +22,18 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 
+RINON_MODE = os.environ.get("RINON_MODE", "standard").strip().lower()
+if RINON_MODE not in {"standard", "cx"}:
+    raise RuntimeError(f"Unknown RINON_MODE: {RINON_MODE}")
+CX_runtime = None
+if RINON_MODE == "cx":
+    from cx_runtime import CXRuntime
+
+    cx_root = os.environ.get("RINON_CX_RUNTIME", "").strip()
+    if not cx_root:
+        raise RuntimeError("RINON_CX_RUNTIME is required. Use start_chat_cx.bat.")
+    CX_runtime = CXRuntime(Path(cx_root))
+
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
 LOG_ROOT = APP_ROOT / "logs"
@@ -168,6 +180,10 @@ def split_sentences(text: str, limit: int = 8) -> list[str]:
 def load_emoji_items() -> list[dict[str, str]]:
     global Emoji_items_cache
     if Emoji_items_cache is not None:
+        return Emoji_items_cache
+    if CX_runtime is not None:
+        from cx_runtime import load_emoji_palette
+        Emoji_items_cache = load_emoji_palette(IRODORI_ROOT)
         return Emoji_items_cache
     sys.path.insert(0, str(IRODORI_ROOT))
     from irodori_tts.gradio_emoji_palette import EMOJI_PALETTE_ITEMS
@@ -891,6 +907,9 @@ def irodori_precision_for_device(device: str, requested: str) -> str:
 
 
 def irodori_runtime_settings() -> dict[str, str]:
+    if CX_runtime is not None:
+        from cx_runtime import CX_SETTINGS
+        return dict(CX_SETTINGS)
     model_device = IRODORI_MODEL_DEVICE
     codec_device = IRODORI_CODEC_DEVICE
     if is_auto_runtime_value(model_device) or is_auto_runtime_value(codec_device):
@@ -975,6 +994,9 @@ def environment_diagnostics() -> dict:
     lm_models = get_models()
     return {
         "appRoot": str(APP_ROOT),
+        "runtimeMode": RINON_MODE,
+        "runtimeLabel": "CX / GPU生成・CPU復元 / 透かしOFF" if CX_runtime else "Standard",
+        "cxRuntime": CX_runtime.info if CX_runtime else None,
         "irodoriRoot": str(IRODORI_ROOT),
         "irodoriRootExists": IRODORI_ROOT.exists(),
         "irodoriPython": str(irodori_python),
@@ -1661,6 +1683,26 @@ def synthesize_sentence(
     ref_wav: Path | None = None,
     duration_scale: float = 1.0,
 ) -> dict:
+    if CX_runtime is not None:
+        styled_text = apply_emoji_style(text, emoji_style)
+        voice_caption = str(caption or "").strip() or IRODORI_CAPTION
+        reference_wav = (ref_wav or IRODORI_REF_WAV).resolve()
+        safe_name = f"reply_{uuid.uuid4().hex}_{index:02d}.wav"
+        output = STATIC_ROOT / "generated" / safe_name
+        with Irodori_lock:
+            if not CX_runtime.info:
+                CX_runtime.preflight()
+            metadata = CX_runtime.synthesize(
+                text=styled_text, caption=voice_caption, reference=reference_wav,
+                steps=steps, duration_scale=duration_scale, output=output,
+            )
+        return {
+            "text": text, "ttsText": styled_text, "caption": voice_caption,
+            "reference": str(reference_wav), "emojiStyle": emoji_style,
+            "speechRate": "fast" if float(duration_scale) < 0.99 else "normal",
+            "durationScale": float(duration_scale), "expression": expression_for_emoji(emoji_style),
+            "url": f"/generated/{safe_name}", "source": str(output), **metadata,
+        }
     module = ensure_irodori_module()
     styled_text = apply_emoji_style(text, emoji_style)
     voice_caption = str(caption or "").strip() or IRODORI_CAPTION
@@ -2518,6 +2560,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    if CX_runtime is not None:
+        print(json.dumps(CX_runtime.preflight(), ensure_ascii=False), flush=True)
+    if "--check-runtime" in sys.argv:
+        print("Runtime check passed", flush=True)
+        return
     host = os.environ.get("CHAT_HOST", "127.0.0.1")
     port = int(os.environ.get("CHAT_PORT", "7862"))
     STATIC_ROOT.mkdir(parents=True, exist_ok=True)

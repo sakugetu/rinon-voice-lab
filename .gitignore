@@ -10,3 +10,4 @@ static/generated/
 .venv/
 venv/
 .deps/
+cx.local.json

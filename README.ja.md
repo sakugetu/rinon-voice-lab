@@ -11,6 +11,13 @@ Rinon Voice Lab は、LM Studio のローカルLLMと Irodori-TTS をつない�
 - 簡易Web検索メモをLLMプロンプトへ追加
 - 2P音声だけを別PCの Irodori-TTS へ送るリモートTTSモード
 
+## DAIV CX 専用モード
+
+`start_chat.bat` でStandard / DAIV CXを選べます。CXは独立したROCm環境を使い、
+AMD GPUで音声生成、CPUで音声復元、電子透かしOFFに固定します。
+初回は [導入手順](docs/CX_SETUP.md) に従って実行環境を登録してください。
+[動作確認](docs/CX_TESTING.md) / [実機検証結果](docs/CX_VALIDATION.md) / [更新・切り戻し](docs/CX_UPDATES.md)。
+
 ## 画面モード
 
 ### 1Pモード

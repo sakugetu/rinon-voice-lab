@@ -1132,7 +1132,8 @@ async function refreshStatus() {
     renderCharacterEditor();
     if (data.irodoriReady) {
       const remoteLabel = diagnostics.remoteLuviaEnabled ? " / 2P remote on" : " / 2P local";
-      irodoriStatus.textContent = `${data.referenceExists ? "refs ready" : "ref missing"} / ${data.irodoriRoot}${remoteLabel}`;
+      const runtimeLabel = diagnostics.runtimeLabel || "Standard";
+      irodoriStatus.textContent = `${runtimeLabel} / ${data.referenceExists ? "refs ready" : "ref missing"} / ${data.irodoriRoot}${remoteLabel}`;
     } else {
       const missing = [];
       if (!diagnostics.gitExists) missing.push("git");

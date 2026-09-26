@@ -1,0 +1,17 @@
+--- source/irodori_tts/watermark.py
++++ source/irodori_tts/watermark.py
+@@ -29,2 +29,2 @@
+-    def __init__(self, *, device: str, model_type: str = "44.1k") -> None:
+-        self.model = self._load_backend(device=device, model_type=model_type)
++    def __init__(self, *, device: str, model_type: str = "44.1k", enabled: bool = True) -> None:
++        self.model = self._load_backend(device=device, model_type=model_type) if enabled else None
+--- source/irodori_tts/inference_runtime.py
++++ source/irodori_tts/inference_runtime.py
+@@ -197,0 +198 @@
++    watermark_enabled: bool = True
+@@ -619 +620 @@
+-        self.watermarker = SilentCipherWatermarker(device=str(self.codec_device))
++        self.watermarker = SilentCipherWatermarker(device=str(self.codec_device), enabled=key.watermark_enabled)
+@@ -1446 +1447 @@
+-                )
++                ) if self.key.watermark_enabled else "info: SilentCipher watermark disabled by RuntimeKey.watermark_enabled=False."
